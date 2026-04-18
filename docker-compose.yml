@@ -1,0 +1,19 @@
+# HemUI Bridge — Docker Compose
+#
+# Usage:
+#   docker compose up -d
+#
+# That's it. Hermes + Bridge + everything.
+
+services:
+  hermes-dashboard:
+    build: .
+    container_name: hermes-dashboard
+    restart: always
+    ports:
+      - "8420:8420"
+    volumes:
+      - "${HOME}/.hermes:/opt/data"         # Hermes config, sessions, API keys
+      - "${HOME}:/opt/data/user-home"       # Access to user's files
+    environment:
+      - HERMES_HOME=/opt/data
