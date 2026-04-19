@@ -38,4 +38,48 @@ Auto-update	docker-compose.yml	Watchtower checks every 5 min
 
 
 
+**Yes! Just the one-liner.** ✅
+
+**Linux/macOS:**
+```bash
+curl -fsSL hermesdashboard.com/install | bash
+```
+
+**Windows:**
+```powershell
+irm hermesdashboard.com/install.ps1 | iex
+```
+
+**That's it!** 
+
+The script:
+1. Installs Docker (if needed)
+2. Pulls `kdevss/hermes-dashboard:latest`
+3. Starts the container
+4. Starts Watchtower (auto-updates)
+
+**User never needs:**
+- ❌ Python
+- ❌ pip
+- ❌ Git
+- ❌ Manual updates
+- ❌ Your source code
+
+**Just:**
+✅ Run one command
+✅ Wait 2 minutes
+✅ Open browser to `localhost:8420`
+✅ Forever auto-updates
+
+**But you need to:**
+1. Own `hermesdashboard.com`
+2. Host `install.sh` at `hermesdashboard.com/install`
+3. Host `install.ps1` at `hermesdashboard.com/install.ps1`
+
+Or users can use:
+```bash
+curl -fsSL https://raw.githubusercontent.com/devops-vaults/hermdocker/main/scripts/install.sh | bash
+```
+
+
 systemctl --user restart docker-desktop 2>&1

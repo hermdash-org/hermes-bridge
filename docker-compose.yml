@@ -7,7 +7,7 @@
 
 services:
   hermes-dashboard:
-    image: devopsvaults/hermes-dashboard:latest
+    image: kdevss/hermes-dashboard:latest
     container_name: hermes-dashboard
     restart: always
     ports:
