@@ -30,13 +30,12 @@ COPY setup.py ./
 # Compile all .py → .so
 RUN python setup.py build_ext --inplace
 
-# Delete ALL .py source files (keep only __init__.py and .so)
-RUN find bridge/ -name "*.py" ! -name "__init__.py" -delete && \
+# Delete ALL .py source files (keep only __init__.py, __main__.py and .so)
+RUN find bridge/ -name "*.py" ! -name "__init__.py" ! -name "__main__.py" -delete && \
     find bridge/ -name "*.c" -delete && \
     find bridge/ -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
-# Strip __init__.py files to minimum (just enough for Python to find packages)
-RUN find bridge/ -name "__init__.py" -exec sh -c 'echo "" > "$1"' _ {} \;
+# Keep __init__.py files intact (they contain imports needed for module loading)
 
 
 # ── Stage 2: Production image ──────────────────────────────────────
@@ -80,7 +79,7 @@ RUN npm install --prefer-offline --no-audit 2>/dev/null || true
 RUN VIRTUAL_ENV=/opt/hermes/venv uv pip install --no-cache-dir \
     fastapi uvicorn[standard] pyyaml httpx
 
-# Copy ONLY compiled bridge (.so files + empty __init__.py) — NO SOURCE CODE
+# Copy ONLY compiled .so files from builder (NO source code)
 COPY --from=builder /build/bridge/ /opt/bridge/bridge/
 
 # Python path

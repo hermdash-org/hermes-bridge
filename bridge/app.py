@@ -63,7 +63,7 @@ def create_app() -> FastAPI:
         if not key:
             return {"error": "No key provided"}
 
-        env_file = Path.home() / ".hermes" / ".env"
+        env_file = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / ".env"
         env_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Read existing, update or append
@@ -125,7 +125,7 @@ def create_app() -> FastAPI:
 def _has_api_key() -> bool:
     """Check if API key exists in ~/.hermes/.env"""
     from pathlib import Path
-    env_file = Path.home() / ".hermes" / ".env"
+    env_file = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / ".env"
     if env_file.exists():
         for line in env_file.read_text().splitlines():
             if line.strip().startswith("OPENROUTER_API_KEY=") and len(line.strip()) > 25:

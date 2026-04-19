@@ -34,7 +34,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/hermes-dashboard:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/hermes-dashboard:${{ steps.version.outputs.VERSION }}
+            devopsvaults/hermes-dashboard:latest
+            devopsvaults/hermes-dashboard:${{ steps.version.outputs.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

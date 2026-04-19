@@ -8,3 +8,5 @@ __pycache__
 .env
 .dockerignore
 docker-compose.yml
+whereicamefrom.md
+oneliner.md

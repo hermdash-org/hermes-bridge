@@ -13,7 +13,7 @@ import os
 py_files = []
 for root, dirs, files in os.walk("bridge"):
     for f in files:
-        if f.endswith(".py") and f != "__init__.py":
+        if f.endswith(".py") and f not in ("__init__.py", "__main__.py"):
             py_files.append(os.path.join(root, f))
 
 setup(

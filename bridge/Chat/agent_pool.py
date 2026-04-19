@@ -60,18 +60,55 @@ logger = logging.getLogger("bridge.pool")
 
 
 # ── Profile Layer ───────────────────────────────────────────────────
+# CRITICAL: Store the ORIGINAL hermes root at module load time.
+# This is the SINGLE SOURCE OF TRUTH for path resolution.
+#
+# Without this, profile switching mutates HERMES_HOME to a profile-specific
+# path (e.g. /opt/data/profiles/coder), and the NEXT call to get_profile_home()
+# reads that corrupted value and appends /profiles/<name> ON TOP, creating
+# infinite recursive paths like:
+#   /opt/data/profiles/coder/profiles/kitten/profiles/coder/profiles/...
+#
+# By capturing the root ONCE at startup, we guarantee stable path resolution
+# regardless of how many profile switches happen.
+#
+# Works for ALL deployment scenarios:
+#   - Linux user with ~/.hermes          → root = ~/.hermes
+#   - macOS user with ~/.hermes          → root = ~/.hermes
+#   - Docker with HERMES_HOME=/opt/data  → root = /opt/data
+#   - Fresh user without hermes          → root = /opt/data (Docker creates it)
+#   - Windows/WSL user with ~/.hermes    → root = ~/.hermes
 
+_hermes_root: Path = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes"))
 _active_profile: str = "default"
 _profile_dbs: dict = {}
 _profile_dbs_lock = threading.Lock()
 
 
+def get_hermes_root() -> Path:
+    """Return the immutable hermes root directory.
+
+    This NEVER changes after module load. All profile paths are
+    computed relative to this root. Safe to call from any thread.
+    """
+    return _hermes_root
+
+
 def get_profile_home(profile: str = None) -> Path:
-    """Resolve profile name → HERMES_HOME directory."""
+    """Resolve profile name → directory path.
+
+    Always computes relative to _hermes_root (captured at startup).
+    NEVER reads HERMES_HOME from env — that would cause recursive
+    path growth when profiles are switched.
+
+    Mapping:
+      "default"  → /opt/data              (or ~/.hermes)
+      "coder"    → /opt/data/profiles/coder (or ~/.hermes/profiles/coder)
+    """
     name = profile or _active_profile
     if name == "default":
-        return Path.home() / ".hermes"
-    return Path.home() / ".hermes" / "profiles" / name
+        return _hermes_root
+    return _hermes_root / "profiles" / name
 
 
 def get_session_db(profile: str = None):
@@ -89,12 +126,16 @@ def get_active_profile() -> str:
 
 
 def set_active_profile(name: str) -> None:
-    """Switch active profile — updates env, cron paths, and agent cache."""
+    """Switch active profile — updates env, cron paths, and agent cache.
+
+    Computes the new home from _hermes_root (stable), then sets
+    HERMES_HOME for hermes-agent internals that read it from env.
+    """
     global _active_profile
     old_profile = _active_profile
     _active_profile = name
 
-    # Update HERMES_HOME so get_hermes_home() resolves to new profile
+    # Compute from the STABLE root — NOT from os.getenv("HERMES_HOME")
     new_home = get_profile_home(name)
     os.environ["HERMES_HOME"] = str(new_home)
 
@@ -108,16 +149,18 @@ def set_active_profile(name: str) -> None:
     except ImportError:
         pass
 
-    # Load profile-specific .env
+    # Load profile-specific .env (fall back to root .env)
     env_path = new_home / ".env"
     if env_path.exists():
         load_dotenv(str(env_path), override=True)
+    elif (_hermes_root / ".env").exists():
+        load_dotenv(str(_hermes_root / ".env"), override=True)
 
     # Clear agent cache so agents pick up new profile config
     if old_profile != name:
         with agent_cache_lock:
             agent_cache.clear()
-        logger.info("Profile switched: %s → %s", old_profile, name)
+        logger.info("Profile switched: %s → %s (home=%s)", old_profile, name, new_home)
 
 
 # ── Shared State ────────────────────────────────────────────────────

@@ -26,9 +26,11 @@ def setup_agent_environment() -> None:
     This is the EXACT equivalent of gateway/run.py lines 89-239.
     Must be called before any AIAgent is created.
     """
-    # ── Load .env from ~/.hermes/.env ────────────────────────────────
+    # ── Load .env from HERMES_HOME/.env ──────────────────────────────
+    # Capture HERMES_HOME ONCE — before any profile switching can corrupt it
     from dotenv import load_dotenv
-    hermes_home = Path.home() / ".hermes"
+    hermes_home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+    logger.info("HERMES_HOME resolved to: %s", hermes_home)
     env_path = hermes_home / ".env"
     if env_path.exists():
         load_dotenv(str(env_path), override=False)
