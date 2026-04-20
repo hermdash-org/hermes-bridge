@@ -151,6 +151,8 @@ def create_skill(name: str, content: str, category: str = "") -> Path:
         ValueError: If skill already exists
         OSError: If file operations fail
     """
+    from .templates import get_default_skill_files
+    
     skills_dir = get_custom_skills_dir()
     
     # Determine skill path
@@ -170,15 +172,15 @@ def create_skill(name: str, content: str, category: str = "") -> Path:
     skill_md = skill_path / "SKILL.md"
     skill_md.write_text(content, encoding="utf-8")
     
-    # Create default folders with placeholder files
-    folders = ["references", "templates", "scripts"]
-    for folder in folders:
-        folder_path = skill_path / folder
-        folder_path.mkdir(exist_ok=True)
-        # Create .gitkeep to preserve empty folders
-        (folder_path / ".gitkeep").touch()
+    # Create default folders with example files
+    default_files = get_default_skill_files()
+    for file_path, file_content in default_files.items():
+        target_path = skill_path / file_path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(file_content, encoding="utf-8")
     
-    logger.info("Created custom skill: %s at %s", name, skill_path)
+    logger.info("Created custom skill: %s at %s with %d default files", 
+                name, skill_path, len(default_files))
     return skill_path
 
 
@@ -317,7 +319,7 @@ def get_skill_details(name: str) -> Dict:
         if f.is_file():
             try:
                 rel = f.relative_to(skill_path)
-                # Skip hidden files and .gitkeep
+                # Skip hidden files (starting with .) including .gitkeep
                 if any(part.startswith('.') for part in rel.parts):
                     continue
                 
@@ -342,6 +344,41 @@ def get_skill_details(name: str) -> Dict:
 # ═══════════════════════════════════════════════════════════════════
 # FILE OPERATIONS
 # ═══════════════════════════════════════════════════════════════════
+
+
+def get_skill_file_content(name: str, file_path: str) -> str:
+    """Get content of a specific file in a skill directory.
+    
+    Args:
+        name: Skill name
+        file_path: Relative path within skill
+    
+    Returns:
+        File content as string
+    
+    Raises:
+        ValueError: If skill or file not found
+        OSError: If file operations fail
+    """
+    skill_path = _find_skill_path(name)
+    if not skill_path:
+        raise ValueError(f"Skill '{name}' not found")
+    
+    target_path = skill_path / file_path
+    
+    if not target_path.exists():
+        raise ValueError(f"File not found: {file_path}")
+    
+    if not target_path.is_file():
+        raise ValueError(f"Path is not a file: {file_path}")
+    
+    try:
+        content = target_path.read_text(encoding="utf-8")
+        logger.info("Read file %s from skill %s (%d chars)", file_path, name, len(content))
+        return content
+    except Exception as e:
+        logger.error("Failed to read file %s from skill %s: %s", file_path, name, e)
+        raise
 
 
 def create_skill_file(name: str, file_path: str, content: str) -> Path:

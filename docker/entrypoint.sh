@@ -112,8 +112,10 @@ else
 fi
 
 echo "════════════════════════════════════════════════"
-echo "  HemUI Bridge — Starting on port 8420"
+echo "  HemUI Bridge — Starting services"
 echo "════════════════════════════════════════════════"
 
-# Start the bridge
+echo "  ✓ Starting bridge API on port 8420..."
+# Start the bridge (this blocks)
+# The bridge will start the cron ticker internally after profile initialization
 exec python3 -m bridge

@@ -45,9 +45,13 @@ from .storage import (
 )
 from .validate import validate_skill_content, ValidationResult
 from .templates import get_default_skill_template
+from .Cron import router as cron_router
 
 router = APIRouter(prefix="/custom-skills", tags=["custom-skills"])
 logger = logging.getLogger("bridge.custom_skills")
+
+# Include cron sub-router
+router.include_router(cron_router)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -363,6 +367,57 @@ async def create_custom_skill_file(name: str, request: Request):
         
     except Exception as e:
         logger.exception("Failed to create skill file: %s in %s", file_path, name)
+        return JSONResponse(
+            {"success": False, "error": str(e)},
+            status_code=500
+        )
+
+
+@router.get("/{name}/files/{file_path:path}")
+async def get_custom_skill_file(name: str, file_path: str):
+    """Get content of a specific file in a skill directory.
+    
+    Returns:
+    {
+        "success": true,
+        "name": "my-skill",
+        "file_path": "references/api-docs.md",
+        "content": "File content here...",
+        "profile": "default"
+    }
+    """
+    try:
+        if not skill_exists(name):
+            return JSONResponse(
+                {"success": False, "error": f"Skill '{name}' not found"},
+                status_code=404
+            )
+        
+        # Security: prevent path traversal
+        if ".." in file_path or file_path.startswith("/"):
+            return JSONResponse(
+                {"success": False, "error": "Invalid file path"},
+                status_code=400
+            )
+        
+        from .storage import get_skill_file_content
+        content = get_skill_file_content(name, file_path)
+        
+        return JSONResponse({
+            "success": True,
+            "name": name,
+            "file_path": file_path,
+            "content": content,
+            "profile": get_active_profile()
+        })
+        
+    except ValueError as e:
+        return JSONResponse(
+            {"success": False, "error": str(e)},
+            status_code=404
+        )
+    except Exception as e:
+        logger.exception("Failed to get skill file: %s in %s", file_path, name)
         return JSONResponse(
             {"success": False, "error": str(e)},
             status_code=500

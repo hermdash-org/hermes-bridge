@@ -178,19 +178,49 @@ def example_function():
 
 
 def get_example_script_template() -> str:
-    """Get an example script template.
+    """Get an example Python script template.
     
     Returns:
-        Example bash script content
+        Example Python script content
     """
-    return """#!/bin/bash
-# Example script for automation tasks
+    return """#!/usr/bin/env python3
+\"\"\"
+Example script for automation tasks.
 
-set -e  # Exit on error
+This script can be called by the agent to perform specific operations.
+\"\"\"
 
-echo "Running example script..."
+import sys
 
-# Add your automation logic here
 
-echo "Script completed successfully!"
+def main():
+    \"\"\"Main entry point.\"\"\"
+    print("Running example script...")
+    
+    # Add your automation logic here
+    
+    print("Script completed successfully!")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 """
+
+
+# ═══════════════════════════════════════════════════════════════════
+# DEFAULT FILES FOR NEW SKILLS
+# ═══════════════════════════════════════════════════════════════════
+
+
+def get_default_skill_files() -> dict:
+    """Get default files to create for a new skill.
+    
+    Returns:
+        Dict mapping relative paths to file content
+    """
+    return {
+        "references/example-reference.md": get_example_reference_template(),
+        "templates/example-template.md": get_example_template_template(),
+        "scripts/example-script.py": get_example_script_template(),
+    }
