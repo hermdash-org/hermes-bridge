@@ -93,6 +93,7 @@ def create_app() -> FastAPI:
     from .OpenRouterOAuth import router as openrouter_oauth_router
     from .Providers import router as providers_router
     from .Skills import router as skills_router
+    from .CustomSkills import router as custom_skills_router
     from .Files import router as files_router
     from .Cron import router as cron_router
     from .Voice import router as voice_router
@@ -104,6 +105,7 @@ def create_app() -> FastAPI:
     app.include_router(openrouter_oauth_router)
     app.include_router(providers_router)
     app.include_router(skills_router)
+    app.include_router(custom_skills_router)
     app.include_router(files_router)
     app.include_router(cron_router)
     app.include_router(voice_router)
