@@ -18,14 +18,14 @@ if not exist "%INSTALL_DIR%\hermes-runtime.exe" (
     powershell -Command "Invoke-WebRequest -Uri '%BINARY_URL%' -OutFile '%INSTALL_DIR%\hermes-runtime.exe'"
 )
 
-:: Add to startup
+:: Add to startup (run hidden)
 echo Adding to startup...
 set STARTUP_PATH=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-powershell -Command "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%STARTUP_PATH%\Hermes Runtime.lnk'); $SC.TargetPath = '%INSTALL_DIR%\hermes-runtime.exe'; $SC.Save()"
+powershell -Command "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%STARTUP_PATH%\Hermes Runtime.lnk'); $SC.TargetPath = 'powershell.exe'; $SC.Arguments = '-WindowStyle Hidden -Command \"Start-Process -FilePath \"\"%INSTALL_DIR%\hermes-runtime.exe\"\" -WindowStyle Hidden\"'; $SC.WindowStyle = 7; $SC.Save()"
 
-:: Start now
+:: Start now (hidden in background)
 echo Starting Hermes...
-start "" "%INSTALL_DIR%\hermes-runtime.exe"
+powershell -WindowStyle Hidden -Command "Start-Process -FilePath '%INSTALL_DIR%\hermes-runtime.exe' -WindowStyle Hidden"
 
 echo.
 echo Hermes installed and running!
