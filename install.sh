@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Installing Hermes Runtime..."
+echo "Installing Hermes Runtime..."
 
 # Detect OS
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -16,17 +16,16 @@ fi
 mkdir -p "$INSTALL_DIR"
 
 # Download runtime
-echo "📥 Downloading runtime..."
+echo "Downloading runtime..."
 curl -L "$BINARY_URL" -o "$INSTALL_DIR/hermes-runtime"
 chmod +x "$INSTALL_DIR/hermes-runtime"
 
 # Run in background
-echo "🔄 Starting Hermes..."
+echo "Starting Hermes..."
 nohup "$INSTALL_DIR/hermes-runtime" > /dev/null 2>&1 &
 
 # Add to startup
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    # Mac: Create LaunchAgent
     mkdir -p "$HOME/Library/LaunchAgents"
     cat > "$HOME/Library/LaunchAgents/com.hermes.runtime.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -48,7 +47,6 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 EOF
     launchctl load "$HOME/Library/LaunchAgents/com.hermes.runtime.plist" 2>/dev/null || true
 else
-    # Linux: Create systemd user service
     mkdir -p "$HOME/.config/systemd/user"
     cat > "$HOME/.config/systemd/user/hermes-runtime.service" <<EOF
 [Unit]
@@ -66,6 +64,5 @@ EOF
     systemctl --user start hermes-runtime.service 2>/dev/null || true
 fi
 
-echo "✅ Hermes installed and running!"
-echo "📍 Access at: http://localhost:8521"
-echo "🔄 Will auto-start on boot"
+echo "Hermes installed and running!"
+echo "Access at: http://localhost:8521"
