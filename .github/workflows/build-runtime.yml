@@ -1,0 +1,65 @@
+name: Build Runtime
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            output: hermes-runtime
+            name: linux
+          - os: windows-latest
+            output: hermes-runtime.exe
+            name: windows.exe
+          - os: macos-latest
+            output: hermes-runtime
+            name: mac
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Clone hermes-agent
+        run: |
+          cd ..
+          git clone --recurse-submodules https://github.com/NousResearch/hermes-agent.git
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          pip install -e ../hermes-agent
+      
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller runtime.spec
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.name }}
+          path: dist/${{ matrix.output }}
+      
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/${{ matrix.output }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
