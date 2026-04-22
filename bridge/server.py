@@ -66,6 +66,19 @@ def start_bridge(host: str = "0.0.0.0", port: int = 8420):
     print(f"🔑 API key: {'set' if os.environ.get('OPENROUTER_API_KEY') else 'MISSING'}")
     print(f"📌 Profile: {get_active_profile()}")
     
+    # Sync bundled skills on startup (auto-initializes ~/.hermes/skills)
+    try:
+        print("📦 Syncing bundled skills...")
+        from tools.skills_sync import sync_skills
+        result = sync_skills(quiet=True)
+        copied = len(result.get('copied', []))
+        updated = len(result.get('updated', []))
+        if copied > 0 or updated > 0:
+            print(f"✅ Skills synced: {copied} new, {updated} updated")
+    except Exception as e:
+        logger.error(f"Skills sync failed: {e}", exc_info=True)
+        print(f"⚠️  Skills sync failed: {e}")
+    
     # Start cron ticker with error handling
     try:
         print("🔄 Starting cron ticker...")
