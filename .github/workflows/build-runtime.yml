@@ -82,5 +82,6 @@ jobs:
             dist/${{ matrix.output }}
             install.sh
             install.ps1
+            install.bat
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
