@@ -1,7 +1,7 @@
 Write-Host "🚀 Installing Hermes Runtime..." -ForegroundColor Green
 
 $InstallDir = "$env:LOCALAPPDATA\Hermes"
-$BinaryUrl = "https://github.com/devops-vaults/hermes/releases/latest/download/windows.exe"
+$BinaryUrl = "https://github.com/devops-vaults/hermes/releases/latest/download/hermes-runtime.exe"
 
 # Create install directory
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null

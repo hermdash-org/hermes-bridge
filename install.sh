@@ -5,10 +5,10 @@ echo "🚀 Installing Hermes Runtime..."
 
 # Detect OS
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    BINARY_URL="https://github.com/devops-vaults/hermes/releases/latest/download/mac"
+    BINARY_URL="https://github.com/devops-vaults/hermes/releases/latest/download/hermes-runtime"
     INSTALL_DIR="$HOME/Library/Application Support/Hermes"
 else
-    BINARY_URL="https://github.com/devops-vaults/hermes/releases/latest/download/linux"
+    BINARY_URL="https://github.com/devops-vaults/hermes/releases/latest/download/hermes-runtime"
     INSTALL_DIR="$HOME/.local/share/hermes"
 fi
 
