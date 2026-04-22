@@ -53,6 +53,11 @@ jobs:
         run: |
           pyinstaller runtime.spec
       
+      - name: Make Linux binary executable
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          chmod +x dist/hermes-runtime
+      
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

@@ -11,7 +11,9 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 block_cipher = None
 
 # Add hermes-agent to path if it exists
-hermes_agent_path = os.path.join(os.path.dirname(__file__), '..', 'hermes-agent')
+import pathlib
+spec_dir = pathlib.Path.cwd()
+hermes_agent_path = str(spec_dir.parent / 'hermes-agent')
 if os.path.exists(hermes_agent_path):
     sys.path.insert(0, hermes_agent_path)
 
