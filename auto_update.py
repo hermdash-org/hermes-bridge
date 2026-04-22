@@ -10,7 +10,7 @@ from pathlib import Path
 
 VERSION = "1.0.0"
 UPDATE_CHECK_URL = "https://hermesdashboard.com/api/version"
-DOWNLOAD_BASE_URL = "https://downloads.hermesdashboard.com"
+DOWNLOAD_BASE_URL = "https://pub-3bf49fcf84dd4f2aa70d4b5696ebe182.r2.dev"
 
 
 def get_platform_filename():
