@@ -44,8 +44,13 @@ jobs:
           cache: 'pip'
       
       - name: Clone hermes-agent
+        shell: bash
         run: |
-          git clone https://github.com/NousResearch/hermes-agent.git ../hermes-agent
+          for i in 1 2 3 4 5; do
+            git clone https://github.com/NousResearch/hermes-agent.git ../hermes-agent && break
+            echo "Clone attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
       
       - name: Inject version from tag
         shell: bash
