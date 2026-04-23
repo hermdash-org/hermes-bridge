@@ -91,6 +91,13 @@ a = Analysis(
     noarchive=False,
 )
 
+# ── Cython Obfuscation Note ─────────────────────────────────────────────
+# When both .py and .so exist, PyInstaller natively prefers the compiled
+# .so extension. collect_all('bridge') puts .so into a.binaries and skips
+# the .py from a.pure automatically. No manual swapping needed.
+# The Cython build step compiles bridge/*.py → .so, and PyInstaller
+# bundles only the compiled extensions — obfuscation is automatic.
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
