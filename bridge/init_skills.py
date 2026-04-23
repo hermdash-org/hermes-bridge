@@ -18,7 +18,7 @@ def init_skills_dir():
     if skills_dir.exists() and any(skills_dir.iterdir()):
         return
     
-    print(f"📦 Initializing skills directory at {skills_dir}")
+    print(f"[INIT] Initializing skills directory at {skills_dir}")
     
     # Create skills directory
     skills_dir.mkdir(parents=True, exist_ok=True)
@@ -31,7 +31,7 @@ def init_skills_dir():
         bundled_skills = Path(__file__).parent.parent.parent / "hermes-agent" / "skills"
     
     if bundled_skills.exists() and bundled_skills.is_dir():
-        print(f"📋 Copying {len(list(bundled_skills.iterdir()))} skill categories...")
+        print(f"[COPY] Copying {len(list(bundled_skills.iterdir()))} skill categories...")
         try:
             # Copy all skill categories
             for category_dir in bundled_skills.iterdir():
@@ -40,18 +40,18 @@ def init_skills_dir():
                     if not dest.exists():
                         shutil.copytree(category_dir, dest)
                         skill_count = len([d for d in dest.iterdir() if d.is_dir()])
-                        print(f"  ✅ {category_dir.name}: {skill_count} skills")
+                        print(f"  [OK] {category_dir.name}: {skill_count} skills")
             
             # Copy manifest if exists
             manifest = bundled_skills / ".bundled_manifest"
             if manifest.exists():
                 shutil.copy2(manifest, skills_dir / ".bundled_manifest")
             
-            print(f"✅ Skills initialized successfully")
+            print(f"[OK] Skills initialized successfully")
         except Exception as e:
-            print(f"⚠️  Error copying skills: {e}")
+            print(f"[WARN] Error copying skills: {e}")
             import traceback
             traceback.print_exc()
     else:
-        print(f"⚠️  Bundled skills not found at {bundled_skills}")
+        print(f"[WARN] Bundled skills not found at {bundled_skills}")
         print(f"   Skills directory created but empty")

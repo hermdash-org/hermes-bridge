@@ -13,9 +13,9 @@ s3 = boto3.client(
 BUCKET = "hermes-downloads"
 
 def upload(local_path, remote_key):
-    print(f"☁️  Uploading {local_path} → {remote_key}")
+    print(f"[UPLOAD] Uploading {local_path} -> {remote_key}")
     s3.upload_file(local_path, BUCKET, remote_key)
-    print(f"✅ Uploaded: https://dl.hermdash.com/{remote_key}")
+    print(f"[OK] Uploaded: https://dl.hermdash.com/{remote_key}")
 
 if __name__ == "__main__":
     upload(sys.argv[1], sys.argv[2])

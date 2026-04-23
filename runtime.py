@@ -233,14 +233,14 @@ def _bootstrap_hermes_home():
         return
 
     logger.info(f"First run detected — creating {hermes_home}")
-    print(f"🆕 First run detected — creating {hermes_home}")
+    print(f"[NEW] First run detected -- creating {hermes_home}")
     hermes_home.mkdir(parents=True, exist_ok=True)
 
     # config.yaml — defaults from hermes-agent/cli-config.yaml.example
     config_path = hermes_home / "config.yaml"
     if not config_path.exists():
         config_path.write_text(DEFAULT_CONFIG_YAML, encoding="utf-8")
-        print(f"   ✅ Created config.yaml with defaults")
+        print(f"   [OK] Created config.yaml with defaults")
 
     # .env — empty, UI will populate via /setup/apikey
     env_path = hermes_home / ".env"
@@ -251,7 +251,7 @@ def _bootstrap_hermes_home():
             "# OPENROUTER_API_KEY=\n",
             encoding="utf-8",
         )
-        print(f"   ✅ Created .env (set your API key via the dashboard)")
+        print(f"   [OK] Created .env (set your API key via the dashboard)")
 
     # skills/ — directory only; skills_sync.py populates it at server start
     (hermes_home / "skills").mkdir(exist_ok=True)
@@ -259,7 +259,7 @@ def _bootstrap_hermes_home():
     # logs/ — session trajectory logs
     (hermes_home / "logs").mkdir(exist_ok=True)
 
-    print(f"   ✅ Ready — open the dashboard to set your API key")
+    print(f"   [OK] Ready -- open the dashboard to set your API key")
 
 
 # ─── Main ───────────────────────────────────────────────────────────────
@@ -267,7 +267,7 @@ def _bootstrap_hermes_home():
 if __name__ == "__main__":
     _setup_logging()
     logger.info(f"Hermes Runtime v{VERSION} starting")
-    print(f"🚀 Hermes Runtime v{VERSION}")
+    print(f"Hermes Runtime v{VERSION}")
 
     try:
         # Bootstrap ~/.hermes/ for fresh users (before anything imports hermes_constants)
@@ -287,9 +287,9 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
         logger.info("Shutting down (Ctrl+C)")
-        print("\n👋 Hermes stopped")
+        print("\nHermes stopped")
     except Exception as e:
         logger.critical(f"Fatal error: {e}", exc_info=True)
-        print(f"\n❌ Fatal error: {e}")
+        print(f"\n[ERROR] Fatal error: {e}")
         print(f"   Check logs at: ~/.hermes/logs/runtime.log")
         sys.exit(1)
