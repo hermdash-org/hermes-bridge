@@ -36,7 +36,7 @@ logger = logging.getLogger("hermes.updater")
 R2_PUBLIC_URL = "https://dl.hermdash.com"
 VERSION_URL = f"{R2_PUBLIC_URL}/version.json"
 CHECK_INTERVAL = 3600  # Check every 1 hour (seconds)
-DOWNLOAD_TIMEOUT = 120  # 2 min timeout for binary download
+DOWNLOAD_TIMEOUT = 180  # 3 min timeout for binary download
 VERSION_CHECK_TIMEOUT = 10  # 10s timeout for version check
 
 # Import local version
@@ -101,29 +101,42 @@ def _verify_binary(path: Path) -> bool:
 def _restart_service():
     """
     Restart the Hermes service using the platform's service manager.
-    This replaces the current process — the new binary takes over.
+    First kills ALL hermes-runtime processes to prevent zombies,
+    then restarts via the service manager so the new binary starts clean.
     """
     try:
         if sys.platform == "darwin":
-            # macOS: launchctl restart
+            # Kill all existing processes first
+            subprocess.run(
+                ["pkill", "-f", "hermes-runtime"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            import time as _t; _t.sleep(1)
+            # macOS: launchctl restart (launchd will respawn due to KeepAlive)
             subprocess.Popen(
                 ["launchctl", "kickstart", "-k",
                  "gui/{}/com.hermes.runtime".format(os.getuid())],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
         elif sys.platform == "win32":
-            # Windows: use scheduled task to restart after a short delay
+            # Windows: schedule restart after short delay
             binary = _get_current_binary_path()
             if binary:
-                # Schedule restart in 2 seconds via cmd
                 subprocess.Popen(
+                    f'taskkill /F /IM hermes-runtime.exe >nul 2>&1 & '
                     f'ping 127.0.0.1 -n 3 > nul && "{binary}"',
                     shell=True,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NO_WINDOW
                 )
         else:
-            # Linux: systemctl restart
+            # Linux: kill any stray processes first
+            subprocess.run(
+                ["pkill", "-f", "hermes-runtime"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            import time as _t; _t.sleep(1)
+            # Restart via systemd (which starts the new binary)
             subprocess.Popen(
                 ["systemctl", "--user", "restart", "hermes-runtime.service"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL

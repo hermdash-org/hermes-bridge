@@ -1,8 +1,9 @@
 """
 HemUI Bridge — Entry point.
 
-Docker handles everything: hermes is installed, Python is there,
-paths are set, service restarts on crash. This file is now dead simple.
+The PyInstaller binary bundles hermes-agent and the bridge together.
+runtime.py is the actual entry point; this module exists for dev-mode
+(python -m bridge).
 """
 
 from bridge.server import start_bridge

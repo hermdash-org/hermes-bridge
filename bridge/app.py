@@ -1,7 +1,7 @@
 """
 App — FastAPI application factory.
 
-In Docker, hermes-agent is ALWAYS installed. No detection needed.
+hermes-agent is bundled inside the PyInstaller binary. No detection needed.
 No setup endpoints. No platform sniffing. Just the API.
 """
 
@@ -55,7 +55,7 @@ def create_app() -> FastAPI:
             "bridge": "hemui",
             "version": VERSION,
             "runtime_version": RUNTIME_VERSION,
-            "hermes_installed": True,  # Always true in Docker
+            "hermes_installed": True,  # Always true — bundled in binary
             "api_key_set": bool(os.environ.get("OPENROUTER_API_KEY")) or _has_api_key(),
             "active_tasks": active_tasks,
             "active_profile": active_profile,
@@ -92,7 +92,7 @@ def create_app() -> FastAPI:
 
         return {"status": "ok"}
 
-    # ── Mount all routers (hermes is guaranteed in Docker) ──────────
+    # ── Mount all routers (hermes-agent is bundled in the binary) ───
     from .Chat import router as chat_router
     from .Profiles import router as profiles_router
     from .Sessions import router as sessions_router

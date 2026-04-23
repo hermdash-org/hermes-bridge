@@ -26,7 +26,6 @@ def _start_cron_ticker():
     def cron_loop():
         try:
             # Import here so we get the profile-patched paths
-            sys.path.insert(0, '/opt/hermes')
             from cron.scheduler import tick
             
             logger.info('Cron ticker started (profile-aware)')
@@ -89,4 +88,3 @@ def start_bridge(host: str = "0.0.0.0", port: int = 8420):
         print(f"⚠️  Cron ticker disabled due to error: {e}")
 
     uvicorn.run(app, host=host, port=port)
-
