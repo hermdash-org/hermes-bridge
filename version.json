@@ -1,8 +1,8 @@
 {
-  "version": "2026.0423.3",
-  "released_at": "2026-04-23T10:15:00Z",
+  "version": "2026.0423.2308",
+  "released_at": "2026-04-23T20:10:38Z",
   "checksums": {
-    "linux": "",
+    "linux": "5b28646473f553f472f9bd91a18c51daa02badc6eb8ae8cf45a1a33ff5dcdb39",
     "mac": "",
     "windows.exe": ""
   }
