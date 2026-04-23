@@ -11,7 +11,13 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-VERSION = "1.0.0"
+# Import runtime version
+try:
+    from version import VERSION as RUNTIME_VERSION
+except ImportError:
+    RUNTIME_VERSION = "dev"
+
+VERSION = "1.0.0"  # Bridge API version
 
 logger = logging.getLogger("bridge.app")
 
@@ -48,6 +54,7 @@ def create_app() -> FastAPI:
             "status": "ok",
             "bridge": "hemui",
             "version": VERSION,
+            "runtime_version": RUNTIME_VERSION,
             "hermes_installed": True,  # Always true in Docker
             "api_key_set": bool(os.environ.get("OPENROUTER_API_KEY")) or _has_api_key(),
             "active_tasks": active_tasks,

@@ -10,10 +10,18 @@ import os
 # Ensure bridge module is importable
 sys.path.insert(0, os.path.dirname(__file__))
 
+# Import version (auto-generated during build)
+try:
+    from version import VERSION
+except ImportError:
+    VERSION = "dev"
+
 from auto_update import check_and_update
 from bridge.server import start_bridge
 
 if __name__ == "__main__":
+    print(f"🚀 Hermes Runtime v{VERSION}")
+    
     # Check for updates on startup
     check_and_update()
     
