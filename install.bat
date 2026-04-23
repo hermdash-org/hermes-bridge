@@ -18,6 +18,14 @@ if not exist "%INSTALL_DIR%\hermes-runtime.exe" (
     powershell -Command "Invoke-WebRequest -Uri '%BINARY_URL%' -OutFile '%INSTALL_DIR%\hermes-runtime.exe'"
 )
 
+:: Download management scripts
+echo Installing management tools...
+if not exist "%INSTALL_DIR%\management" mkdir "%INSTALL_DIR%\management"
+set MGMT_BASE=https://raw.githubusercontent.com/devops-vaults/hermes/main/management
+for %%s in (stop.bat start.bat restart.bat status.bat uninstall.bat README.md) do (
+    curl -sL "%MGMT_BASE%/%%s" -o "%INSTALL_DIR%\management\%%s" 2>nul
+)
+
 :: Add to startup (run hidden)
 echo Adding to startup...
 set STARTUP_PATH=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
@@ -31,3 +39,10 @@ echo.
 echo Hermes installed and running!
 echo Access at: http://localhost:8521
 echo Will auto-start on boot
+echo.
+echo Management commands:
+echo   Stop:      %INSTALL_DIR%\management\stop.bat
+echo   Start:     %INSTALL_DIR%\management\start.bat
+echo   Restart:   %INSTALL_DIR%\management\restart.bat
+echo   Status:    %INSTALL_DIR%\management\status.bat
+echo   Uninstall: %INSTALL_DIR%\management\uninstall.bat
