@@ -22,6 +22,22 @@ VERSION = "1.0.0"  # Bridge API version
 logger = logging.getLogger("bridge.app")
 
 
+def _reload_env():
+    """Re-read ~/.hermes/.env so new API keys are picked up without restart."""
+    from pathlib import Path
+    from dotenv import load_dotenv
+    env_file = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / ".env"
+    if env_file.exists():
+        load_dotenv(str(env_file), override=True)
+
+
+def _has_api_key():
+    """Check if any known LLM provider API key is set."""
+    keys = ["OPENROUTER_API_KEY", "GROQ_API_KEY", "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY", "GOOGLE_API_KEY", "TOGETHER_API_KEY"]
+    return any(os.environ.get(k) for k in keys)
+
+
 def create_app() -> FastAPI:
     """Build the FastAPI app with all routers."""
 
@@ -41,6 +57,9 @@ def create_app() -> FastAPI:
     # ── Health check ────────────────────────────────────────────────
     @app.get("/health")
     async def health():
+        # Hot-reload .env so new API keys are picked up without restart
+        _reload_env()
+
         active_tasks = 0
         active_profile = "default"
         try:
@@ -64,9 +83,15 @@ def create_app() -> FastAPI:
     # ── API key setup (user still needs to enter their key) ─────────
     @app.post("/setup/apikey")
     async def set_api_key(payload: dict):
-        """Save API key to ~/.hermes/.env"""
+        """Save API key to ~/.hermes/.env
+        
+        Accepts:
+          {"key": "sk-..."}  → saves as OPENROUTER_API_KEY (default)
+          {"key": "sk-...", "name": "GROQ_API_KEY"}  → saves as GROQ_API_KEY
+        """
         from pathlib import Path
         key = payload.get("key", "").strip()
+        key_name = payload.get("name", "OPENROUTER_API_KEY").strip()
         if not key:
             return {"error": "No key provided"}
 
@@ -80,15 +105,15 @@ def create_app() -> FastAPI:
 
         found = False
         for i, line in enumerate(lines):
-            if line.startswith("OPENROUTER_API_KEY="):
-                lines[i] = f"OPENROUTER_API_KEY={key}"
+            if line.startswith(f"{key_name}="):
+                lines[i] = f"{key_name}={key}"
                 found = True
                 break
         if not found:
-            lines.append(f"OPENROUTER_API_KEY={key}")
+            lines.append(f"{key_name}={key}")
 
         env_file.write_text("\n".join(lines) + "\n")
-        os.environ["OPENROUTER_API_KEY"] = key
+        os.environ[key_name] = key
 
         return {"status": "ok"}
 
