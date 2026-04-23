@@ -9,13 +9,19 @@ set BINARY_URL=https://dl.hermdash.com/windows.exe
 :: Create install directory
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
-:: Download runtime
+:: Kill any existing hermes-runtime (clean slate)
+taskkill /F /IM hermes-runtime.exe >nul 2>&1
+timeout /t 2 /nobreak >nul
+
+:: Download runtime (cache-busting to avoid CDN serving stale binary)
 echo Downloading...
-curl -L "%BINARY_URL%" -o "%INSTALL_DIR%\hermes-runtime.exe"
+set "TIMESTAMP=%date:~-4%%date:~-7,2%%date:~-10,2%%time:~0,2%%time:~3,2%%time:~6,2%"
+set "TIMESTAMP=%TIMESTAMP: =0%"
+curl -L -H "Cache-Control: no-cache" "%BINARY_URL%?t=%TIMESTAMP%" -o "%INSTALL_DIR%\hermes-runtime.exe"
 
 if not exist "%INSTALL_DIR%\hermes-runtime.exe" (
     echo Trying with PowerShell...
-    powershell -Command "Invoke-WebRequest -Uri '%BINARY_URL%' -OutFile '%INSTALL_DIR%\hermes-runtime.exe'"
+    powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%BINARY_URL%' -OutFile '%INSTALL_DIR%\hermes-runtime.exe' -Headers @{'Cache-Control'='no-cache'}"
 )
 
 :: Add to startup (run hidden)

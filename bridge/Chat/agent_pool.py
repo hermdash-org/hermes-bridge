@@ -75,9 +75,9 @@ logger = logging.getLogger("bridge.pool")
 # Works for ALL deployment scenarios:
 #   - Linux user with ~/.hermes          → root = ~/.hermes
 #   - macOS user with ~/.hermes          → root = ~/.hermes
-#   - Docker with HERMES_HOME=/opt/data  → root = /opt/data
-#   - Fresh user without hermes          → root = /opt/data (Docker creates it)
+#   - Fresh user (first run of binary)   → root = ~/.hermes (bootstrap creates it)
 #   - Windows/WSL user with ~/.hermes    → root = ~/.hermes
+#   - Custom HERMES_HOME=/some/path      → root = /some/path
 
 _hermes_root: Path = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes"))
 _active_profile: str = "default"
