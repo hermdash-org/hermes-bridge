@@ -36,7 +36,7 @@ logger = logging.getLogger("hermes.updater")
 R2_PUBLIC_URL = "https://dl.hermdash.com"
 VERSION_URL = f"{R2_PUBLIC_URL}/version.json"
 CHECK_INTERVAL = 3600  # Check every 1 hour (seconds)
-DOWNLOAD_TIMEOUT = 120  # 2 min timeout for binary download
+DOWNLOAD_TIMEOUT = 180  # 3 min timeout for binary download
 VERSION_CHECK_TIMEOUT = 10  # 10s timeout for version check
 
 # Import local version

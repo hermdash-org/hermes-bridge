@@ -146,6 +146,10 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          python upload_to_r2.py "install.sh" "hermes-downloads" "install.sh"
-          python upload_to_r2.py "install.bat" "hermes-downloads" "install.bat"
-          python upload_to_r2.py "install.ps1" "hermes-downloads" "install.ps1"
+          for script in install.sh install.bat install.ps1; do
+            if [ -f "$script" ]; then
+              python upload_to_r2.py "$script" "hermes-downloads" "$script"
+            else
+              echo "⚠️ Skipping $script (not found)"
+            fi
+          done
