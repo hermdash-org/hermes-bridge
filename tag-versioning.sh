@@ -1,11 +1,28 @@
 #!/bin/bash
 # Automatic Date-Based Versioning System
 # Usage: ./tag-versioning.sh
+#
+# Creates tags like: v2026.0423.1, v2026.0423.2, ...
+# CI builds are triggered by pushing tags matching v*
 
 set -e
 
 echo "🏷️  Automatic Versioning System"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Ensure we're on main and up to date
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [ "$BRANCH" != "main" ]; then
+    echo "❌ Must be on main branch (currently on: $BRANCH)"
+    exit 1
+fi
+
+# Check for uncommitted changes — refuse to tag dirty working tree
+if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+    echo "❌ You have uncommitted changes. Commit or stash them first:"
+    git status --short
+    exit 1
+fi
 
 # Get current date
 YEAR=$(date +%Y)
@@ -29,11 +46,12 @@ echo "📅 Date: $(date +%Y-%m-%d)"
 echo "🔢 New version: $NEW_TAG"
 echo ""
 
-# Commit any changes
-if ! git diff-index --quiet HEAD --; then
-    echo "📝 Committing changes..."
-    git add -A
-    git commit -m "Release $NEW_TAG" || true
+# Confirm before tagging
+read -p "Tag and push $NEW_TAG? [Y/n] " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
+    echo "Aborted."
+    exit 0
 fi
 
 # Create and push tag
@@ -48,4 +66,4 @@ echo ""
 echo "✅ Version $NEW_TAG released!"
 echo "🚀 GitHub Actions will build and deploy automatically"
 echo ""
-echo "📍 View release: https://github.com/devops-vaults/hermes/releases/tag/$NEW_TAG"
+echo "📍 View release: https://github.com/hermdash-org/hermes/actions"
