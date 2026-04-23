@@ -225,8 +225,8 @@ def _bootstrap_hermes_home():
 
     Defaults are taken directly from hermes-agent/cli-config.yaml.example.
     """
-    hermes_home = Path(os.environ.get("HERMES_HOME", "")).strip() or (Path.home() / ".hermes")
-    hermes_home = Path(hermes_home)
+    hermes_home_env = os.environ.get("HERMES_HOME", "").strip()
+    hermes_home = Path(hermes_home_env) if hermes_home_env else (Path.home() / ".hermes")
 
     if hermes_home.exists():
         # Existing user — nothing to do
