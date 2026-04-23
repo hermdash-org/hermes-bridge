@@ -42,9 +42,9 @@ for pkg in ['agent', 'tools', 'hermes_cli', 'gateway', 'tui_gateway', 'cron', 'a
 skills_path = str(spec_dir.parent / 'hermes-agent' / 'skills')
 if os.path.exists(skills_path):
     bridge_datas.append((skills_path, 'skills'))
-    print(f"✅ Bundling skills from {skills_path}")
+    print(f"[OK] Bundling skills from {skills_path}")
 else:
-    print(f"⚠️  Skills directory not found at {skills_path} — binary will have no bundled skills")
+    print(f"[WARN] Skills directory not found at {skills_path} -- binary will have no bundled skills")
 
 # Add standalone hermes-agent modules
 bridge_hiddenimports += [

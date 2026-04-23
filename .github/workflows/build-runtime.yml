@@ -45,7 +45,7 @@ jobs:
       
       - name: Clone hermes-agent
         run: |
-          git clone --recurse-submodules https://github.com/NousResearch/hermes-agent.git ../hermes-agent
+          git clone https://github.com/NousResearch/hermes-agent.git ../hermes-agent
       
       - name: Inject version from tag
         shell: bash
