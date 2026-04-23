@@ -71,7 +71,7 @@ jobs:
           name: hermes-runtime-${{ matrix.name }}
           path: dist/${{ matrix.output }}
       
-      - name: Upload to Cloudflare R2
+      - name: Upload binary to Cloudflare R2
         if: startsWith(github.ref, 'refs/tags/')
         env:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -80,15 +80,65 @@ jobs:
         run: |
           pip install boto3
           python upload_to_r2.py "dist/${{ matrix.output }}" "hermes-downloads" "${{ matrix.name }}"
-      
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+
+  # After all platform builds finish, upload version.json with checksums
+  publish-version:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          files: |
-            dist/${{ matrix.output }}
-            install.sh
-            install.ps1
-            install.bat
+          python-version: '3.11'
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Generate version.json with checksums
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+
+          # Calculate SHA256 checksums for each platform binary
+          LINUX_SHA256=$(sha256sum artifacts/hermes-runtime-linux/hermes-runtime | cut -d' ' -f1)
+          MAC_SHA256=$(sha256sum artifacts/hermes-runtime-mac/hermes-runtime | cut -d' ' -f1)
+          WIN_SHA256=$(sha256sum artifacts/hermes-runtime-windows.exe/hermes-runtime.exe | cut -d' ' -f1)
+
+          cat > version.json <<EOF
+          {
+            "version": "$VERSION",
+            "released_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "checksums": {
+              "linux": "$LINUX_SHA256",
+              "mac": "$MAC_SHA256",
+              "windows.exe": "$WIN_SHA256"
+            }
+          }
+          EOF
+
+          echo "✅ version.json:"
+          cat version.json
+
+      - name: Upload version.json to R2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          pip install boto3
+          python upload_to_r2.py "version.json" "hermes-downloads" "version.json"
+
+      - name: Upload install scripts to R2
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          python upload_to_r2.py "install.sh" "hermes-downloads" "install.sh"
+          python upload_to_r2.py "install.bat" "hermes-downloads" "install.bat"
+          python upload_to_r2.py "install.ps1" "hermes-downloads" "install.ps1"

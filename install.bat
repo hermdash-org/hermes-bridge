@@ -4,7 +4,8 @@ setlocal enabledelayedexpansion
 echo Installing Hermes Runtime...
 
 set INSTALL_DIR=%LOCALAPPDATA%\Hermes
-set BINARY_URL=https://github.com/devops-vaults/hermes/releases/latest/download/hermes-runtime.exe
+set R2_BASE=https://dl.hermdash.com
+set BINARY_URL=%R2_BASE%/windows.exe
 
 :: Create install directory
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
@@ -21,7 +22,7 @@ if not exist "%INSTALL_DIR%\hermes-runtime.exe" (
 :: Download management scripts
 echo Installing management tools...
 if not exist "%INSTALL_DIR%\management" mkdir "%INSTALL_DIR%\management"
-set MGMT_BASE=https://raw.githubusercontent.com/devops-vaults/hermes/main/management
+set MGMT_BASE=%R2_BASE%/management
 for %%s in (stop.bat start.bat restart.bat status.bat uninstall.bat README.md) do (
     curl -sL "%MGMT_BASE%/%%s" -o "%INSTALL_DIR%\management\%%s" 2>nul
 )

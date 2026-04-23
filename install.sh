@@ -4,11 +4,13 @@ set -e
 echo "🚀 Installing Hermes Runtime..."
 
 # Detect OS
+R2_BASE="https://dl.hermdash.com"
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
-    BINARY_URL="https://github.com/devops-vaults/hermes/releases/latest/download/hermes-runtime"
+    BINARY_URL="$R2_BASE/mac"
     INSTALL_DIR="$HOME/Library/Application Support/Hermes"
 else
-    BINARY_URL="https://github.com/devops-vaults/hermes/releases/latest/download/hermes-runtime"
+    BINARY_URL="$R2_BASE/linux"
     INSTALL_DIR="$HOME/.local/share/hermes"
 fi
 
@@ -23,7 +25,7 @@ chmod +x "$INSTALL_DIR/hermes-runtime"
 # Download management scripts
 echo "📦 Installing management tools..."
 mkdir -p "$INSTALL_DIR/management"
-MGMT_BASE="https://raw.githubusercontent.com/devops-vaults/hermes/main/management"
+MGMT_BASE="$R2_BASE/management"
 for script in stop.sh start.sh restart.sh status.sh uninstall.sh README.md; do
     curl -sL "$MGMT_BASE/$script" -o "$INSTALL_DIR/management/$script" 2>/dev/null || true
     [ -f "$INSTALL_DIR/management/$script" ] && chmod +x "$INSTALL_DIR/management/$script" 2>/dev/null || true
