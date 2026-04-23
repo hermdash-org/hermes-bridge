@@ -91,6 +91,41 @@ a = Analysis(
     noarchive=False,
 )
 
+# ── Cython Obfuscation: swap .py source with compiled .so/.pyd ──────────
+# PyInstaller used the .py files above for import analysis.
+# Now we strip those .py modules from the bundle and keep only the
+# compiled Cython extensions (.so on Linux/Mac, .pyd on Windows).
+# This prevents anyone from extracting readable Python source.
+import glob as _glob
+
+_cython_exts = []
+_cython_mod_names = set()
+
+for _pattern in ['bridge/**/*.so', 'bridge/**/*.pyd']:
+    for _filepath in _glob.glob(_pattern, recursive=True):
+        _dirname = os.path.dirname(_filepath)
+        _filename = os.path.basename(_filepath)
+        # Extract module name: bridge/app.cpython-311-x86_64-linux-gnu.so → bridge.app
+        _modname = _filename.split('.')[0]
+        _fullmod = _dirname.replace(os.sep, '.') + '.' + _modname if _dirname else _modname
+        _cython_mod_names.add(_fullmod)
+        _cython_exts.append((_filepath, _dirname))
+
+if _cython_mod_names:
+    print(f"[OBFUSCATION] Found {len(_cython_mod_names)} Cython-compiled modules")
+    # Remove .py/.pyc source versions from the pure modules list
+    _before = len(a.pure)
+    a.pure = [_item for _item in a.pure if _item[0] not in _cython_mod_names]
+    _stripped = _before - len(a.pure)
+    print(f"[OBFUSCATION] Stripped {_stripped} .py source modules from bundle")
+    # Add compiled .so/.pyd extensions as binaries
+    a.binaries += _cython_exts
+    print(f"[OBFUSCATION] Added {len(_cython_exts)} compiled extensions to bundle")
+    for _mod in sorted(_cython_mod_names):
+        print(f"  🔒 {_mod}")
+else:
+    print("[OBFUSCATION] No Cython extensions found — bundling .py as-is")
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
