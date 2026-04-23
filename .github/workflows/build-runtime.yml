@@ -104,6 +104,49 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           chmod +x dist/hermes-runtime
+          
+      - name: Smoke Test Binary
+        shell: python
+        run: |
+          import subprocess
+          import time
+          import urllib.request
+          import sys
+          import os
+          
+          # Platform-specific paths inside GitHub runner
+          binary_path = os.path.join("dist", "${{ matrix.output }}")
+          print(f"🧪 Starting {binary_path} for smoke test...")
+          
+          # Start the binary in the background
+          proc = subprocess.Popen([binary_path])
+          
+          # Poll /health for up to 20 seconds
+          test_passed = False
+          for _ in range(20):
+              try:
+                  res = urllib.request.urlopen("http://127.0.0.1:8521/health", timeout=1)
+                  if res.getcode() == 200:
+                      test_passed = True
+                      break
+              except Exception:
+                  pass
+              time.sleep(1)
+              
+          # Cleanup the process
+          proc.terminate()
+          try:
+              proc.wait(timeout=5)
+          except subprocess.TimeoutExpired:
+              proc.kill()
+              
+          # Final verdict
+          if not test_passed:
+              print("\n❌ SMOKE TEST FAILED: Binary crashed or failed to serve /health.")
+              print("❌ Upload to R2 BLOCKED.")
+              sys.exit(1)
+          else:
+              print("\n✅ SMOKE TEST PASSED: /health responded perfectly.")
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
