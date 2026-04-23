@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """
 Hermes Runtime - Standalone executable entry point
-This is the main file that PyInstaller will bundle into runtime.exe
+This is the main file that PyInstaller bundles into hermes-runtime.
+
+On first run, bootstraps ~/.hermes/ with sensible defaults from
+hermes-agent's cli-config.yaml.example so fresh users can start
+immediately after entering their API key via the UI.
 """
 
 import sys
 import os
+import socket
+import signal
+import logging
+from pathlib import Path
 
 # Ensure bridge module is importable
 sys.path.insert(0, os.path.dirname(__file__))
@@ -16,15 +24,272 @@ try:
 except ImportError:
     VERSION = "dev"
 
-from auto_update import check_and_update
-from bridge.server import start_bridge
+
+# ─── Logging ────────────────────────────────────────────────────────────
+# Write logs to ~/.hermes/logs/runtime.log so users can debug crashes.
+# Also print to stdout for systemd journal.
+
+def _setup_logging():
+    """Set up logging to both file and stdout."""
+    hermes_home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+    log_dir = hermes_home / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "runtime.log"
+
+    # Rotate: keep last log under 5MB
+    if log_file.exists() and log_file.stat().st_size > 5_000_000:
+        old = log_file.with_suffix(".log.old")
+        old.unlink(missing_ok=True)
+        log_file.rename(old)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        handlers=[
+            logging.FileHandler(str(log_file), encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+
+logger = logging.getLogger("hermes.runtime")
+
+
+# ─── Port Management ───────────────────────────────────────────────────
+
+DEFAULT_PORT = 8521
+
+def _find_available_port(preferred: int) -> int:
+    """Find an available port, starting with the preferred one.
+
+    If the preferred port is in use by another hermes-runtime, kill it.
+    If it's in use by something else, try the next ports.
+    Returns the port number that is available.
+    """
+    # First try: is the preferred port free?
+    if _port_is_free(preferred):
+        return preferred
+
+    # Port is occupied — try to kill a stale hermes-runtime on it
+    logger.warning(f"Port {preferred} is in use, attempting to free it...")
+    if _kill_stale_hermes(preferred):
+        import time
+        time.sleep(1)
+        if _port_is_free(preferred):
+            logger.info(f"Freed port {preferred} from stale process")
+            return preferred
+
+    # Still occupied by something else — try nearby ports
+    for offset in range(1, 10):
+        candidate = preferred + offset
+        if _port_is_free(candidate):
+            logger.warning(f"Using fallback port {candidate} (port {preferred} is occupied)")
+            return candidate
+
+    # Last resort: let OS pick a port
+    logger.error(f"Ports {preferred}-{preferred + 9} all occupied, using OS-assigned port")
+    return 0
+
+
+def _port_is_free(port: int) -> bool:
+    """Check if a TCP port is free to bind."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", port))
+            return True
+    except OSError:
+        return False
+
+
+def _kill_stale_hermes(port: int) -> bool:
+    """Kill a stale hermes-runtime process holding the port."""
+    import subprocess
+    try:
+        if sys.platform == "win32":
+            # Find PID using the port
+            result = subprocess.run(
+                ["netstat", "-ano"], capture_output=True, text=True
+            )
+            for line in result.stdout.splitlines():
+                if f":{port}" in line and "LISTENING" in line:
+                    pid = line.strip().split()[-1]
+                    subprocess.run(["taskkill", "/F", "/PID", pid],
+                                   capture_output=True)
+                    return True
+        else:
+            # Linux/macOS: fuser or lsof
+            result = subprocess.run(
+                ["fuser", f"{port}/tcp"],
+                capture_output=True, text=True
+            )
+            if result.stdout.strip():
+                subprocess.run(
+                    ["fuser", "-k", f"{port}/tcp"],
+                    capture_output=True
+                )
+                return True
+    except Exception as e:
+        logger.debug(f"Could not kill stale process on port {port}: {e}")
+    return False
+
+
+# ─── Default config.yaml ────────────────────────────────────────────────
+# Exact values from hermes-agent/cli-config.yaml.example lines 8-517.
+# Only the essential, non-commented defaults are included. Users can
+# customise via the UI or by editing the file directly.
+
+DEFAULT_CONFIG_YAML = """\
+# Hermes Agent Configuration
+# Generated by hermes-runtime on first run.
+# Full reference: https://github.com/hermdash-org/hermes-agent/blob/main/cli-config.yaml.example
+
+# =============================================================================
+# Model Configuration
+# =============================================================================
+model:
+  default: "anthropic/claude-sonnet-4"
+  provider: "auto"
+  base_url: "https://openrouter.ai/api/v1"
+
+# =============================================================================
+# Terminal Tool Configuration
+# =============================================================================
+terminal:
+  backend: "local"
+  cwd: "."
+  timeout: 180
+  lifetime_seconds: 300
+
+# =============================================================================
+# Context Compression
+# =============================================================================
+compression:
+  enabled: true
+  threshold: 0.50
+  target_ratio: 0.20
+  protect_last_n: 20
+
+# =============================================================================
+# Persistent Memory
+# =============================================================================
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  memory_char_limit: 2200
+  user_char_limit: 1375
+  nudge_interval: 10
+  flush_min_turns: 6
+
+# =============================================================================
+# Session Reset Policy
+# =============================================================================
+session_reset:
+  mode: both
+  idle_minutes: 1440
+  at_hour: 4
+
+# =============================================================================
+# Skills Configuration
+# =============================================================================
+skills:
+  creation_nudge_interval: 15
+
+# =============================================================================
+# Agent Behavior
+# =============================================================================
+agent:
+  max_turns: 60
+  verbose: false
+  reasoning_effort: "medium"
+
+# =============================================================================
+# Platform Toolsets
+# =============================================================================
+platform_toolsets:
+  cli: [hermes-cli]
+
+# =============================================================================
+# STT Configuration
+# =============================================================================
+stt:
+  enabled: true
+"""
+
+
+def _bootstrap_hermes_home():
+    """Create ~/.hermes/ with default config for fresh users.
+
+    Only runs if ~/.hermes/ does not exist. Existing users are never
+    touched — their config.yaml, .env, skills/, sessions, profiles,
+    memories, and cron jobs are all preserved.
+
+    Defaults are taken directly from hermes-agent/cli-config.yaml.example.
+    """
+    hermes_home = Path(os.environ.get("HERMES_HOME", "")).strip() or (Path.home() / ".hermes")
+    hermes_home = Path(hermes_home)
+
+    if hermes_home.exists():
+        # Existing user — nothing to do
+        return
+
+    logger.info(f"First run detected — creating {hermes_home}")
+    print(f"🆕 First run detected — creating {hermes_home}")
+    hermes_home.mkdir(parents=True, exist_ok=True)
+
+    # config.yaml — defaults from hermes-agent/cli-config.yaml.example
+    config_path = hermes_home / "config.yaml"
+    if not config_path.exists():
+        config_path.write_text(DEFAULT_CONFIG_YAML, encoding="utf-8")
+        print(f"   ✅ Created config.yaml with defaults")
+
+    # .env — empty, UI will populate via /setup/apikey
+    env_path = hermes_home / ".env"
+    if not env_path.exists():
+        env_path.write_text(
+            "# Hermes Agent Environment\n"
+            "# Your API key will be saved here when you set it up via the UI.\n"
+            "# OPENROUTER_API_KEY=\n",
+            encoding="utf-8",
+        )
+        print(f"   ✅ Created .env (set your API key via the dashboard)")
+
+    # skills/ — directory only; skills_sync.py populates it at server start
+    (hermes_home / "skills").mkdir(exist_ok=True)
+
+    # logs/ — session trajectory logs
+    (hermes_home / "logs").mkdir(exist_ok=True)
+
+    print(f"   ✅ Ready — open the dashboard to set your API key")
+
+
+# ─── Main ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    _setup_logging()
+    logger.info(f"Hermes Runtime v{VERSION} starting")
     print(f"🚀 Hermes Runtime v{VERSION}")
-    
-    # Check for updates on startup
-    check_and_update()
-    
-    # Start the bridge server
-    # This will be accessible at http://localhost:8521
-    start_bridge(host="127.0.0.1", port=8521)
+
+    try:
+        # Bootstrap ~/.hermes/ for fresh users (before anything imports hermes_constants)
+        _bootstrap_hermes_home()
+
+        # Check for updates on startup
+        from auto_update import check_and_update
+        check_and_update()
+
+        # Find an available port (handles port conflicts gracefully)
+        port = _find_available_port(DEFAULT_PORT)
+
+        # Start the bridge server
+        from bridge.server import start_bridge
+        logger.info(f"Starting bridge on 127.0.0.1:{port}")
+        start_bridge(host="127.0.0.1", port=port)
+
+    except KeyboardInterrupt:
+        logger.info("Shutting down (Ctrl+C)")
+        print("\n👋 Hermes stopped")
+    except Exception as e:
+        logger.critical(f"Fatal error: {e}", exc_info=True)
+        print(f"\n❌ Fatal error: {e}")
+        print(f"   Check logs at: ~/.hermes/logs/runtime.log")
+        sys.exit(1)

@@ -101,18 +101,12 @@ def _verify_binary(path: Path) -> bool:
 def _restart_service():
     """
     Restart the Hermes service using the platform's service manager.
-    First kills ALL hermes-runtime processes to prevent zombies,
-    then restarts via the service manager so the new binary starts clean.
+    The service manager handles stopping the old process and starting
+    the new binary atomically — no manual pkill needed.
     """
     try:
         if sys.platform == "darwin":
-            # Kill all existing processes first
-            subprocess.run(
-                ["pkill", "-f", "hermes-runtime"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            import time as _t; _t.sleep(1)
-            # macOS: launchctl restart (launchd will respawn due to KeepAlive)
+            # macOS: launchctl kickstart -k sends SIGTERM then restarts
             subprocess.Popen(
                 ["launchctl", "kickstart", "-k",
                  "gui/{}/com.hermes.runtime".format(os.getuid())],
@@ -130,20 +124,14 @@ def _restart_service():
                     creationflags=subprocess.CREATE_NO_WINDOW
                 )
         else:
-            # Linux: kill any stray processes first
-            subprocess.run(
-                ["pkill", "-f", "hermes-runtime"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
-            import time as _t; _t.sleep(1)
-            # Restart via systemd (which starts the new binary)
+            # Linux: systemctl restart sends SIGTERM then starts new binary
             subprocess.Popen(
                 ["systemctl", "--user", "restart", "hermes-runtime.service"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
     except Exception as e:
         logger.error(f"Service restart failed: {e}")
-        # Fallback: try os.execv to replace current process
+        # Fallback: try os.execv to replace current process with new binary
         try:
             binary = _get_current_binary_path()
             if binary and binary.exists():
@@ -164,7 +152,16 @@ def _check_for_update() -> dict | None:
         return None
 
     try:
-        resp = requests.get(VERSION_URL, timeout=VERSION_CHECK_TIMEOUT)
+        # Cache-busting: timestamp param forces CDN cache miss,
+        # no-cache header tells proxies to revalidate with origin.
+        # Without this, Cloudflare could serve stale version.json for hours.
+        import time as _t
+        resp = requests.get(
+            VERSION_URL,
+            timeout=VERSION_CHECK_TIMEOUT,
+            params={"t": int(_t.time())},
+            headers={"Cache-Control": "no-cache"},
+        )
         resp.raise_for_status()
         data = resp.json()
 
@@ -203,7 +200,15 @@ def _download_and_apply(update_info: dict) -> bool:
     try:
         logger.info(f"Downloading v{update_info['version']}...")
 
-        resp = requests.get(update_info["url"], timeout=DOWNLOAD_TIMEOUT, stream=True)
+        # Cache-busting on binary download too — CDN could serve stale binary
+        import time as _t
+        resp = requests.get(
+            update_info["url"],
+            timeout=DOWNLOAD_TIMEOUT,
+            stream=True,
+            params={"t": int(_t.time())},
+            headers={"Cache-Control": "no-cache"},
+        )
         resp.raise_for_status()
 
         sha256 = hashlib.sha256()

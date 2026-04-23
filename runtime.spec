@@ -35,6 +35,17 @@ for pkg in ['agent', 'tools', 'hermes_cli', 'gateway', 'tui_gateway', 'cron', 'a
     except Exception as e:
         print(f"Warning: Could not collect {pkg}: {e}")
 
+# Bundle hermes-agent/skills/ → skills/ inside the binary.
+# skills_sync.py locates these at Path(__file__).parent.parent / "skills"
+# which resolves to sys._MEIPASS/skills/ in the frozen binary.
+# This is how fresh users get seeded with the 25 bundled skill categories.
+skills_path = str(spec_dir.parent / 'hermes-agent' / 'skills')
+if os.path.exists(skills_path):
+    bridge_datas.append((skills_path, 'skills'))
+    print(f"✅ Bundling skills from {skills_path}")
+else:
+    print(f"⚠️  Skills directory not found at {skills_path} — binary will have no bundled skills")
+
 # Add standalone hermes-agent modules
 bridge_hiddenimports += [
     'run_agent',

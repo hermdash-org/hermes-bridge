@@ -21,9 +21,9 @@ sleep 1
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 
-# Download runtime
+# Download runtime (cache-busting to avoid CDN serving stale binary)
 echo "📥 Downloading..."
-curl -L "$BINARY_URL" -o "$INSTALL_DIR/hermes-runtime"
+curl -L -H "Cache-Control: no-cache" "$BINARY_URL?t=$(date +%s)" -o "$INSTALL_DIR/hermes-runtime"
 chmod +x "$INSTALL_DIR/hermes-runtime"
 
 # Set up as a managed service (NOT nohup — so auto-update can restart it)
@@ -57,11 +57,17 @@ else
 [Unit]
 Description=Hermes Runtime
 After=network.target
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
 ExecStart=$INSTALL_DIR/hermes-runtime
 Restart=always
-RestartSec=3
+RestartSec=5
+TimeoutStopSec=5
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target
