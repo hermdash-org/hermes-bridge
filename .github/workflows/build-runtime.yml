@@ -57,7 +57,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "VERSION = \"$VERSION\"" > version.py
-          echo "✅ Version set to: $VERSION"
+          echo "[OK] Version set to: $VERSION"
       
       - name: Install dependencies
         run: |
@@ -83,18 +83,23 @@ jobs:
           c_files = glob.glob('bridge/**/*.c', recursive=True)
           if c_files:
               setup(ext_modules=cythonize(c_files, language_level='3'), script_args=['build_ext', '--inplace'])
-              # Remove .py source files that were successfully compiled
+              compiled = 0
               for c in c_files:
                   py = c.replace('.c', '.py')
                   so_pattern = c.replace('.c', '*.so') if os.name != 'nt' else c.replace('.c', '*.pyd')
+                  # Only remove .c intermediates — keep .py for PyInstaller import analysis
+                  # The runtime.spec strips .py from the final binary (obfuscation preserved)
+                  os.remove(c)
                   if glob.glob(so_pattern):
-                      os.remove(py)
-                      os.remove(c)
-                      print(f'  [OK] {py} -> compiled')
+                      compiled += 1
+                      print(f'  [OK] {py} -> compiled to .so (source kept for analysis)')
+                  else:
+                      print(f'  [WARN] {py} -> no extension produced')
+              print(f'  Compiled {compiled}/{len(c_files)} modules')
           else:
               print('  No .c files generated, skipping build')
           "
-          echo "[*] Compilation complete"
+          echo "[*] Compilation complete (.py kept for PyInstaller, stripped from final binary)"
 
       - name: Build with PyInstaller
         run: |
@@ -104,6 +109,49 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           chmod +x dist/hermes-runtime
+          
+      - name: Smoke Test Binary
+        shell: python
+        run: |
+          import subprocess
+          import time
+          import urllib.request
+          import sys
+          import os
+          
+          # Platform-specific paths inside GitHub runner
+          binary_path = os.path.join("dist", "${{ matrix.output }}")
+          print(f"[SMOKE] Starting {binary_path} for smoke test...")
+          
+          # Start the binary in the background
+          proc = subprocess.Popen([binary_path])
+          
+          # Poll /health for up to 20 seconds
+          test_passed = False
+          for _ in range(20):
+              try:
+                  res = urllib.request.urlopen("http://127.0.0.1:8521/health", timeout=1)
+                  if res.getcode() == 200:
+                      test_passed = True
+                      break
+              except Exception:
+                  pass
+              time.sleep(1)
+              
+          # Cleanup the process
+          proc.terminate()
+          try:
+              proc.wait(timeout=5)
+          except subprocess.TimeoutExpired:
+              proc.kill()
+              
+          # Final verdict
+          if not test_passed:
+              print("\n[FAIL] SMOKE TEST FAILED: Binary crashed or failed to serve /health.")
+              print("[FAIL] Upload to R2 BLOCKED.")
+              sys.exit(1)
+          else:
+              print("\n[PASS] SMOKE TEST PASSED: /health responded perfectly.")
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -161,7 +209,7 @@ jobs:
           }
           EOF
 
-          echo "✅ version.json:"
+          echo "[OK] version.json:"
           cat version.json
 
       - name: Install upload dependencies
@@ -185,6 +233,6 @@ jobs:
             if [ -f "$script" ]; then
               python upload_to_r2.py "$script" "hermes-downloads" "$script"
             else
-              echo "⚠️ Skipping $script (not found)"
+              echo "[SKIP] $script (not found)"
             fi
           done

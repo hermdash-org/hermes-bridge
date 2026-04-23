@@ -29,7 +29,7 @@ def _start_cron_ticker():
             from cron.scheduler import tick
             
             logger.info('Cron ticker started (profile-aware)')
-            print("🔄 Cron ticker loop starting...")
+            print("[CRON] Cron ticker loop starting...")
             
             while True:
                 try:
@@ -37,16 +37,16 @@ def _start_cron_ticker():
                     executed = tick(verbose=True)  # Enable verbose for debugging
                     if executed > 0:
                         logger.info(f'Executed {executed} job(s)')
-                        print(f"✅ Executed {executed} job(s)")
+                        print(f"[OK] Executed {executed} job(s)")
                     else:
                         logger.debug('No jobs due')
                 except Exception as e:
                     logger.error(f'Cron tick error: {e}', exc_info=True)
-                    print(f"❌ Cron tick error: {e}")
+                    print(f"[ERROR] Cron tick error: {e}")
                 time.sleep(60)
         except Exception as e:
             logger.error(f'Cron ticker initialization failed: {e}', exc_info=True)
-            print(f"❌ Cron ticker initialization failed: {e}")
+            print(f"[ERROR] Cron ticker initialization failed: {e}")
     
     try:
         ticker = threading.Thread(target=cron_loop, daemon=True, name='cron-ticker')
@@ -60,31 +60,31 @@ def start_bridge(host: str = "0.0.0.0", port: int = 8420):
     """Start the bridge server."""
     app = create_app()
 
-    print(f"🌉 HemUI Bridge v{VERSION} on http://{host}:{port}")
-    print(f"📡 POST /chat  →  GET /chat/stream/{{sid}}  →  GET /chat/status/{{tid}}")
-    print(f"🔑 API key: {'set' if os.environ.get('OPENROUTER_API_KEY') else 'MISSING'}")
-    print(f"📌 Profile: {get_active_profile()}")
+    print(f"HemUI Bridge v{VERSION} on http://{host}:{port}")
+    print(f"POST /chat  ->  GET /chat/stream/{{sid}}  ->  GET /chat/status/{{tid}}")
+    print(f"API key: {'set' if os.environ.get('OPENROUTER_API_KEY') else 'MISSING'}")
+    print(f"Profile: {get_active_profile()}")
     
     # Sync bundled skills on startup (auto-initializes ~/.hermes/skills)
     try:
-        print("📦 Syncing bundled skills...")
+        print("[SYNC] Syncing bundled skills...")
         from tools.skills_sync import sync_skills
         result = sync_skills(quiet=True)
         copied = len(result.get('copied', []))
         updated = len(result.get('updated', []))
         if copied > 0 or updated > 0:
-            print(f"✅ Skills synced: {copied} new, {updated} updated")
+            print(f"[OK] Skills synced: {copied} new, {updated} updated")
     except Exception as e:
         logger.error(f"Skills sync failed: {e}", exc_info=True)
-        print(f"⚠️  Skills sync failed: {e}")
+        print(f"[WARN] Skills sync failed: {e}")
     
     # Start cron ticker with error handling
     try:
-        print("🔄 Starting cron ticker...")
+        print("[CRON] Starting cron ticker...")
         _start_cron_ticker()
-        print("✅ Cron ticker started successfully")
+        print("[OK] Cron ticker started successfully")
     except Exception as e:
         logger.error(f"Failed to start cron ticker: {e}", exc_info=True)
-        print(f"⚠️  Cron ticker disabled due to error: {e}")
+        print(f"[WARN] Cron ticker disabled due to error: {e}")
 
     uvicorn.run(app, host=host, port=port)

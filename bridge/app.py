@@ -152,7 +152,7 @@ def create_app() -> FastAPI:
     except Exception:
         pass
 
-    logger.info("✅ Bridge ready — all routers mounted")
+    logger.info("Bridge ready -- all routers mounted")
     return app
 
 
