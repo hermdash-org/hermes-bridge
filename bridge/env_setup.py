@@ -162,13 +162,30 @@ def setup_agent_environment() -> None:
         os.environ["HERMES_TIMEZONE"] = tz_cfg.strip()
 
     # ── Toolsets ────────────────────────────────────────────────────
-    toolsets = cfg.get("toolsets")
-    if isinstance(toolsets, list) and "HEMUI_TOOLSETS" not in os.environ:
-        os.environ["HEMUI_TOOLSETS"] = ",".join(toolsets)
+    # The official hermes-agent config schema is:
+    #   platform_toolsets:
+    #     cli: [hermes-cli, web, ...]
+    # We also support the legacy flat key for backward compat:
+    #   toolsets: [hermes-cli, web]
+    # The authoritative resolver lives in agent_config.get_enabled_toolsets()
+    # which calls hermes_cli.tools_config._get_platform_tools() directly.
+    # This env var is only a fallback hint — the resolver is the source of truth.
+    if "HEMUI_TOOLSETS" not in os.environ:
+        # Try official schema first: platform_toolsets.cli
+        pt = cfg.get("platform_toolsets")
+        if isinstance(pt, dict):
+            cli_toolsets = pt.get("cli")
+            if isinstance(cli_toolsets, list) and cli_toolsets:
+                os.environ["HEMUI_TOOLSETS"] = ",".join(str(t) for t in cli_toolsets)
+        # Fallback: legacy flat toolsets key
+        if "HEMUI_TOOLSETS" not in os.environ:
+            toolsets = cfg.get("toolsets")
+            if isinstance(toolsets, list) and toolsets:
+                os.environ["HEMUI_TOOLSETS"] = ",".join(str(t) for t in toolsets)
 
     logger.info(
         "Agent environment configured: TERMINAL_CWD=%s, TERMINAL_ENV=%s, TOOLSETS=%s",
         os.environ.get("TERMINAL_CWD", "(not set)"),
         os.environ.get("TERMINAL_ENV", "local"),
-        os.environ.get("HEMUI_TOOLSETS", "hermes-cli")
+        os.environ.get("HEMUI_TOOLSETS", "(auto-resolved)")
     )
