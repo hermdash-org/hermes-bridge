@@ -515,6 +515,15 @@ def get_agent(session_id: str, streaming_session_id: str = None):
             if _user_ephemeral:
                 _combined_ephemeral = (_combined_ephemeral + "\n\n" + _user_ephemeral).strip()
 
+            # Toolsets: prefer config.yaml resolution from build_agent_kwargs
+            # (matches the official TUI gateway's _load_enabled_toolsets).
+            # Env var override preserved for backward compat, but config.yaml
+            # is now the primary source — no more hardcoded "hermes-cli" gate.
+            resolved_toolsets = extra_kwargs.pop("enabled_toolsets", None)
+            env_toolsets = os.environ.get("HEMUI_TOOLSETS")
+            if env_toolsets:
+                resolved_toolsets = [t.strip() for t in env_toolsets.split(",") if t.strip()]
+
             agent = _get_AIAgent()(
                 model=current_model,
                 api_key=os.environ.get("OPENROUTER_API_KEY", ""),
@@ -524,7 +533,7 @@ def get_agent(session_id: str, streaming_session_id: str = None):
                 session_id=session_id,
                 session_db=db,
                 quiet_mode=True,
-                enabled_toolsets=os.environ.get("HEMUI_TOOLSETS", "hermes-cli").split(","),
+                enabled_toolsets=resolved_toolsets,
                 ephemeral_system_prompt=_combined_ephemeral or None,
                 **extra_kwargs,
             )
