@@ -133,10 +133,13 @@ def create_app() -> FastAPI:
         try:
             from auto_update import apply_update_now, is_update_available
             info = is_update_available()
-            if info:
-                apply_update_now()
-                return {"status": "restarting", "version": info["version"]}
-            return {"status": "no_update"}
+            if not info:
+                return {"status": "no_update"}
+
+            result = apply_update_now()
+            result["version"] = info["version"]
+            # result["status"] is "restarting", "downloading", or "no_update"
+            return result
         except Exception as e:
             return {"error": str(e)}
 

@@ -9,13 +9,22 @@ sits on disk until the next natural restart (user closes app, system reboot,
 or user clicks "Update Now" in the dashboard). This prevents mid-session
 crashes that kill active chats.
 
+Resilience guarantees:
+  - Thread self-heals: if the update loop crashes, it restarts automatically
+  - Detection is instant: flags set on version.json comparison, not download
+  - Download retries: exponential backoff on failure, never gives up
+  - Health-triggered: /health endpoint kicks off a check if the thread is stale
+  - Fallback HTTP: uses urllib if requests isn't available (PyInstaller edge case)
+  - "Update Now" only restarts when binary is ACTUALLY downloaded on disk
+
 Flow:
   1. Background thread wakes every CHECK_INTERVAL seconds
   2. Fetches version.json from R2 (tiny file, ~50 bytes)
   3. Compares with local VERSION
-  4. If newer -> downloads binary, verifies checksum, swaps on disk
-  5. Sets update_available flag -> dashboard shows "Update ready" banner
-  6. On next startup, the new binary loads automatically
+  4. If newer -> sets update_available flag IMMEDIATELY
+  5. Downloads binary, verifies checksum, swaps on disk (best effort)
+  6. Dashboard shows "Update ready" banner with "Update Now" button
+  7. On next startup (or user click), the new binary loads automatically
 """
 
 import sys
@@ -26,30 +35,35 @@ import platform
 import subprocess
 import threading
 import logging
-import tempfile
+import json
 from pathlib import Path
 
 try:
-    import requests
+    import requests as _requests_lib
 except ImportError:
-    requests = None
+    _requests_lib = None
 
 logger = logging.getLogger("hermes.updater")
 
 # ── Update state (thread-safe: only written by updater thread) ──────────
 _update_pending = False
 _update_version = None
-_update_downloaded = False  # True once binary is swapped on disk
-_last_check_time = 0  # Epoch timestamp of last version check
-_check_lock = threading.Lock()  # Prevent concurrent checks
+_update_downloaded = False       # True once binary is swapped on disk
+_last_check_time = 0             # Epoch timestamp of last version check
+_check_lock = threading.Lock()   # Prevent concurrent checks
+_download_failures = 0           # Consecutive download failure count
+_updater_thread = None           # Reference to the updater thread
+_updater_thread_lock = threading.Lock()
 
 # ─── Configuration ──────────────────────────────────────────────────────
 R2_PUBLIC_URL = "https://dl.hermdash.com"
 VERSION_URL = f"{R2_PUBLIC_URL}/version.json"
-CHECK_INTERVAL = 300  # Check every 5 minutes (seconds)
-DOWNLOAD_TIMEOUT = 180  # 3 min timeout for binary download
-VERSION_CHECK_TIMEOUT = 10  # 10s timeout for version check
-STALE_CHECK_THRESHOLD = 120  # On-demand re-check if last check > 2 min ago
+CHECK_INTERVAL = 300             # Check every 5 minutes (seconds)
+DOWNLOAD_TIMEOUT = 180           # 3 min timeout for binary download
+VERSION_CHECK_TIMEOUT = 10       # 10s timeout for version check
+STALE_CHECK_THRESHOLD = 120      # On-demand re-check if last check > 2 min ago
+MAX_DOWNLOAD_RETRIES = 3         # Max retries per update loop iteration
+DOWNLOAD_RETRY_BASE_DELAY = 30   # Base delay between download retries (seconds)
 
 # Import local version
 try:
@@ -58,10 +72,87 @@ except ImportError:
     VERSION = "0.0.0"
 
 
+# ─── HTTP Helpers (resilient) ───────────────────────────────────────────
+
+def _http_get_json(url, timeout=10, params=None):
+    """
+    Fetch JSON from a URL. Uses requests if available, falls back to urllib.
+    This ensures update checks work even if requests isn't bundled in PyInstaller.
+    """
+    # Build URL with cache-busting param
+    cache_bust = int(time.time())
+    if params is None:
+        params = {}
+    params["t"] = cache_bust
+
+    if _requests_lib is not None:
+        resp = _requests_lib.get(
+            url, timeout=timeout, params=params,
+            headers={"Cache-Control": "no-cache"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+    else:
+        # Fallback: stdlib urllib (always available)
+        import urllib.request
+        import urllib.parse
+        query = urllib.parse.urlencode(params)
+        full_url = f"{url}?{query}"
+        req = urllib.request.Request(
+            full_url,
+            headers={"Cache-Control": "no-cache", "User-Agent": "Hermes-Updater"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+
+def _http_download_file(url, dest_path, timeout=180, params=None):
+    """
+    Download a file from URL to dest_path. Uses requests if available,
+    falls back to urllib. Returns SHA256 hex digest of downloaded content.
+    """
+    cache_bust = int(time.time())
+    if params is None:
+        params = {}
+    params["t"] = cache_bust
+
+    sha256 = hashlib.sha256()
+
+    if _requests_lib is not None:
+        resp = _requests_lib.get(
+            url, timeout=timeout, stream=True, params=params,
+            headers={"Cache-Control": "no-cache"},
+        )
+        resp.raise_for_status()
+        with open(dest_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+                sha256.update(chunk)
+    else:
+        import urllib.request
+        import urllib.parse
+        query = urllib.parse.urlencode(params)
+        full_url = f"{url}?{query}"
+        req = urllib.request.Request(
+            full_url,
+            headers={"Cache-Control": "no-cache", "User-Agent": "Hermes-Updater"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open(dest_path, "wb") as f:
+                while True:
+                    chunk = resp.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    sha256.update(chunk)
+
+    return sha256.hexdigest()
+
+
 # ─── Helpers ────────────────────────────────────────────────────────────
 
 def _parse_version(v: str) -> tuple:
-    """Parse semver string to comparable tuple. e.g. '1.2.3' → (1, 2, 3)"""
+    """Parse semver string to comparable tuple. e.g. '1.2.3' -> (1, 2, 3)"""
     try:
         parts = v.strip().lstrip("v").split(".")
         return tuple(int(p) for p in parts)
@@ -158,24 +249,10 @@ def _check_for_update() -> dict | None:
     """
     Check R2 for the latest version.
     Returns version info dict if update available, None otherwise.
+    Uses _http_get_json which falls back to urllib if requests isn't available.
     """
-    if requests is None:
-        logger.warning("requests library not available, skipping update check")
-        return None
-
     try:
-        # Cache-busting: timestamp param forces CDN cache miss,
-        # no-cache header tells proxies to revalidate with origin.
-        # Without this, Cloudflare could serve stale version.json for hours.
-        import time as _t
-        resp = requests.get(
-            VERSION_URL,
-            timeout=VERSION_CHECK_TIMEOUT,
-            params={"t": int(_t.time())},
-            headers={"Cache-Control": "no-cache"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        data = _http_get_json(VERSION_URL, timeout=VERSION_CHECK_TIMEOUT)
 
         latest = data.get("version", "0.0.0")
         sha256 = data.get("checksums", {}).get(_get_platform_key(), "")
@@ -195,12 +272,15 @@ def _check_for_update() -> dict | None:
 
 def _download_and_apply(update_info: dict) -> bool:
     """
-    Download new binary, verify checksum, swap in place, restart.
+    Download new binary, verify checksum, swap in place.
     Returns True if update was applied successfully.
+    NEVER restarts — just swaps the binary on disk.
     """
+    global _update_downloaded, _download_failures
+
     binary_path = _get_current_binary_path()
     if binary_path is None:
-        logger.debug("Not a frozen binary, skipping update")
+        logger.debug("Not a frozen binary, skipping download (update still flagged)")
         return False
 
     install_dir = _get_install_dir()
@@ -212,38 +292,26 @@ def _download_and_apply(update_info: dict) -> bool:
     try:
         logger.info(f"Downloading v{update_info['version']}...")
 
-        # Cache-busting on binary download too — CDN could serve stale binary
-        import time as _t
-        resp = requests.get(
-            update_info["url"],
-            timeout=DOWNLOAD_TIMEOUT,
-            stream=True,
-            params={"t": int(_t.time())},
-            headers={"Cache-Control": "no-cache"},
+        actual_hash = _http_download_file(
+            update_info["url"], tmp_path, timeout=DOWNLOAD_TIMEOUT
         )
-        resp.raise_for_status()
-
-        sha256 = hashlib.sha256()
-        with open(tmp_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-                sha256.update(chunk)
 
         # Verify checksum if provided
         if update_info.get("sha256"):
-            actual_hash = sha256.hexdigest()
             if actual_hash != update_info["sha256"]:
                 logger.error(
                     f"Checksum mismatch: expected {update_info['sha256']}, "
                     f"got {actual_hash}"
                 )
                 tmp_path.unlink(missing_ok=True)
+                _download_failures += 1
                 return False
 
         # Verify the downloaded file looks like a valid binary
         if not _verify_binary(tmp_path):
             logger.error("Downloaded file failed validation")
             tmp_path.unlink(missing_ok=True)
+            _download_failures += 1
             return False
 
         # Make executable on Unix
@@ -253,7 +321,7 @@ def _download_and_apply(update_info: dict) -> bool:
         # Atomic swap: rename new binary over old one
         if sys.platform == "win32":
             # Windows can't overwrite a running exe directly
-            # Rename current → .old, then new → current
+            # Rename current -> .old, then new -> current
             old_path = binary_path.with_suffix(binary_path.suffix + ".old")
             old_path.unlink(missing_ok=True)
             try:
@@ -262,6 +330,7 @@ def _download_and_apply(update_info: dict) -> bool:
                 # Binary is locked, schedule update for next restart
                 logger.warning("Binary locked, update will apply on next restart")
                 # Leave .update file — on next startup we check for it
+                _download_failures += 1
                 return False
             os.rename(tmp_path, binary_path)
             # Clean up old binary after a delay (best effort)
@@ -277,14 +346,18 @@ def _download_and_apply(update_info: dict) -> bool:
         logger.info("Update will take effect on next restart (NOT restarting now)")
 
         # Mark binary as downloaded and ready to apply
-        global _update_downloaded
         _update_downloaded = True
+        _download_failures = 0  # Reset failure counter on success
 
         return True
 
     except Exception as e:
-        logger.error(f"Update failed: {e}")
-        tmp_path.unlink(missing_ok=True)
+        logger.error(f"Download failed: {e}")
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        _download_failures += 1
         return False
 
 
@@ -326,7 +399,7 @@ def _do_version_check():
             _last_check_time = time.time()
 
             if update_info:
-                # Set the flag IMMEDIATELY when detected — before download
+                # Set the flag IMMEDIATELY when detected -- before download
                 _update_pending = True
                 _update_version = update_info['version']
                 logger.info(
@@ -340,20 +413,60 @@ def _do_version_check():
 
 
 def _update_loop():
-    """Main update loop — runs forever in background thread."""
+    """
+    Main update loop -- runs forever in background thread.
+    Self-healing: any exception is caught and logged, loop continues.
+    Download failures use exponential backoff but never stop trying.
+    """
     # Short delay to let server stabilize
     time.sleep(5)
 
     while True:
         try:
             update_info = _do_version_check()
-            if update_info:
-                # Try to download (best effort — flag is already set)
-                _download_and_apply(update_info)
+            if update_info and not _update_downloaded:
+                # Retry download with exponential backoff
+                for attempt in range(MAX_DOWNLOAD_RETRIES):
+                    success = _download_and_apply(update_info)
+                    if success:
+                        break
+                    # Exponential backoff: 30s, 60s, 120s
+                    delay = DOWNLOAD_RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        f"Download attempt {attempt + 1}/{MAX_DOWNLOAD_RETRIES} "
+                        f"failed, retrying in {delay}s"
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        f"All {MAX_DOWNLOAD_RETRIES} download attempts failed. "
+                        f"Will retry next check cycle. "
+                        f"Total consecutive failures: {_download_failures}"
+                    )
         except Exception as e:
-            logger.error(f"Update loop error: {e}")
+            # Catch EVERYTHING -- this thread must never die
+            logger.error(f"Update loop error (recovering): {e}")
 
         time.sleep(CHECK_INTERVAL)
+
+
+def _ensure_updater_alive():
+    """
+    Check if the updater thread is alive. If it crashed, restart it.
+    Called from is_update_available() to guarantee self-healing.
+    """
+    global _updater_thread
+
+    with _updater_thread_lock:
+        if _updater_thread is not None and not _updater_thread.is_alive():
+            logger.warning("Updater thread died, restarting...")
+            _updater_thread = threading.Thread(
+                target=_update_loop,
+                daemon=True,
+                name="auto-updater-revived"
+            )
+            _updater_thread.start()
+            logger.info("Updater thread restarted successfully")
 
 
 def start_auto_updater():
@@ -361,6 +474,8 @@ def start_auto_updater():
     Start the silent auto-updater as a daemon thread.
     Call this once from runtime.py after the server starts.
     """
+    global _updater_thread
+
     # First, apply any pending update from a previous failed swap
     _apply_pending_update()
 
@@ -369,12 +484,14 @@ def start_auto_updater():
         logger.debug("Dev mode detected, auto-updater disabled")
         return
 
-    thread = threading.Thread(
-        target=_update_loop,
-        daemon=True,
-        name="auto-updater"
-    )
-    thread.start()
+    with _updater_thread_lock:
+        _updater_thread = threading.Thread(
+            target=_update_loop,
+            daemon=True,
+            name="auto-updater"
+        )
+        _updater_thread.start()
+
     logger.info(f"Auto-updater started (checking every {CHECK_INTERVAL}s, restart-free)")
 
 
@@ -384,10 +501,14 @@ def is_update_available() -> dict | None:
     Called by the bridge's /health endpoint to inform the dashboard.
     Returns {"version": "x.y.z", "downloaded": bool} if update found, None otherwise.
 
-    On first call (or if stale), triggers a background version check so the
-    dashboard doesn't have to wait for the hourly loop.
+    Self-healing: also checks if the updater thread is alive and restarts it
+    if it crashed. Triggers a background version check if data is stale.
     """
     global _last_check_time
+
+    # Self-heal: restart updater thread if it crashed
+    if getattr(sys, 'frozen', False):
+        _ensure_updater_alive()
 
     # If we already know about an update, return it immediately
     if _update_pending and _update_version:
@@ -405,14 +526,39 @@ def is_update_available() -> dict | None:
     return None
 
 
-def apply_update_now():
+def apply_update_now() -> dict:
     """
     User clicked 'Update Now' in dashboard. Restart the service.
     Only call this when the user explicitly requests it.
+
+    Returns status dict so the endpoint can inform the user:
+      - {"status": "restarting"} if binary downloaded and restarting
+      - {"status": "downloading"} if update detected but not yet downloaded
+      - {"status": "no_update"} if no update available
     """
-    if _update_pending:
-        logger.info("User requested immediate update restart")
-        _restart_service()
+    if not _update_pending:
+        return {"status": "no_update"}
+
+    if not _update_downloaded:
+        # Update detected but binary not yet on disk -- don't restart
+        # into the same old version! Kick off a download attempt instead.
+        logger.warning(
+            "User clicked Update Now but binary not downloaded yet. "
+            "Triggering download..."
+        )
+        if _update_version:
+            threading.Thread(
+                target=_download_and_apply,
+                args=({"version": _update_version, "sha256": "",
+                       "url": f"{R2_PUBLIC_URL}/{_get_platform_key()}"},),
+                daemon=True,
+                name="update-download-ondemand"
+            ).start()
+        return {"status": "downloading"}
+
+    logger.info("User requested immediate update restart")
+    _restart_service()
+    return {"status": "restarting"}
 
 
 # Legacy function name for backward compatibility
