@@ -140,6 +140,49 @@ def get_request_overrides(cfg: dict) -> dict | None:
     return None
 
 
+def get_enabled_toolsets(cfg: dict) -> list[str] | None:
+    """Resolve enabled toolsets from config.yaml.
+
+    Uses the SAME resolution function as the official TUI gateway
+    (tui_gateway/server.py:633 _load_enabled_toolsets) and gateway/run.py:6548.
+
+    This ensures every toolset the upstream project adds — including
+    MCP servers, new tool categories, and platform-specific tools —
+    is automatically available through the bridge without any code change.
+
+    Falls back to None (= all tools enabled) if the import fails,
+    which is the most open/permissive default.
+    """
+    try:
+        from hermes_cli.config import load_config
+        from hermes_cli.tools_config import _get_platform_tools
+
+        # Use the config we already loaded (profile-aware) merged with
+        # whatever load_config() returns for global defaults.
+        # "cli" platform key matches the TUI gateway's behaviour.
+        # include_default_mcp_servers=True ensures MCP tools are available
+        # at runtime (see tui_gateway/server.py PR #3252 comment).
+        effective_cfg = cfg or load_config()
+        try:
+            # Current hermes-agent (with MCP server support)
+            enabled = sorted(
+                _get_platform_tools(effective_cfg, "cli", include_default_mcp_servers=True)
+            )
+        except TypeError:
+            # Older hermes-agent versions without include_default_mcp_servers param
+            enabled = sorted(
+                _get_platform_tools(effective_cfg, "cli")
+            )
+        return enabled or None
+    except ImportError:
+        # hermes_cli.tools_config not available (very old version or
+        # running outside hermes venv) — return None = all tools enabled.
+        return None
+    except Exception:
+        # Any other error — return None (most open/permissive default).
+        return None
+
+
 def build_agent_kwargs(profile_home: Path) -> dict:
     """Build the full dict of extra AIAgent constructor kwargs from config.
 
@@ -173,5 +216,10 @@ def build_agent_kwargs(profile_home: Path) -> dict:
     overrides = get_request_overrides(cfg)
     if overrides:
         kwargs["request_overrides"] = overrides
+
+    # Toolsets: read from config.yaml (same as official TUI/gateway)
+    toolsets = get_enabled_toolsets(cfg)
+    if toolsets is not None:
+        kwargs["enabled_toolsets"] = toolsets
 
     return kwargs
