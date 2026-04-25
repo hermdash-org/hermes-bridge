@@ -203,44 +203,69 @@ def _verify_binary(path: Path) -> bool:
 
 def _restart_service():
     """
-    Restart the Hermes service using the platform's service manager.
-    The service manager handles stopping the old process and starting
-    the new binary atomically — no manual pkill needed.
+    Restart the Hermes runtime to load the new binary.
+
+    Strategy (in order):
+      1. Try platform service manager (systemctl/launchctl) — checks exit code
+      2. If service manager fails (not installed as service), use os.execv
+         to replace the current process in-place with the updated binary
+
+    os.execv is the ultimate fallback — it replaces the running process
+    with the new binary at the same path. Works regardless of how the
+    runtime was started (service, terminal, cron, etc.)
     """
+    binary = _get_current_binary_path()
+    service_restarted = False
+
     try:
         if sys.platform == "darwin":
-            # macOS: launchctl kickstart -k sends SIGTERM then restarts
-            subprocess.Popen(
+            result = subprocess.run(
                 ["launchctl", "kickstart", "-k",
                  "gui/{}/com.hermes.runtime".format(os.getuid())],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=5
             )
+            service_restarted = (result.returncode == 0)
+
         elif sys.platform == "win32":
-            # Windows: schedule restart after short delay
-            binary = _get_current_binary_path()
             if binary:
+                # Windows: detach a new process, then exit current
                 subprocess.Popen(
-                    f'taskkill /F /IM hermes-runtime.exe >nul 2>&1 & '
                     f'ping 127.0.0.1 -n 3 > nul && "{binary}"',
                     shell=True,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     creationflags=subprocess.CREATE_NO_WINDOW
                 )
+                # Give the ping delay time to start, then exit this process
+                os._exit(0)
+
         else:
-            # Linux: systemctl restart sends SIGTERM then starts new binary
-            subprocess.Popen(
+            # Linux: try systemctl first, CHECK if it actually works
+            result = subprocess.run(
                 ["systemctl", "--user", "restart", "hermes-runtime.service"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=10
             )
+            service_restarted = (result.returncode == 0)
+
     except Exception as e:
-        logger.error(f"Service restart failed: {e}")
-        # Fallback: try os.execv to replace current process with new binary
-        try:
-            binary = _get_current_binary_path()
-            if binary and binary.exists():
-                os.execv(str(binary), sys.argv)
-        except Exception as e2:
-            logger.error(f"Fallback restart also failed: {e2}")
+        logger.warning(f"Service manager restart failed: {e}")
+
+    if service_restarted:
+        logger.info("Service manager restarted successfully")
+        return
+
+    # Fallback: os.execv replaces current process with new binary
+    # This works regardless of how the runtime was started
+    logger.info("Service manager unavailable, using os.execv to restart")
+    try:
+        if binary and binary.exists():
+            logger.info(f"Restarting via os.execv: {binary}")
+            os.execv(str(binary), [str(binary)])
+        else:
+            logger.error(f"Cannot restart: binary not found at {binary}")
+    except Exception as e:
+        logger.error(f"os.execv restart failed: {e}")
 
 
 # ─── Core Update Logic ─────────────────────────────────────────────────
