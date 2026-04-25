@@ -49,6 +49,7 @@ logger = logging.getLogger("hermes.updater")
 _update_pending = False
 _update_version = None
 _update_downloaded = False       # True once binary is swapped on disk
+_cached_update_info = None       # Full update_info dict with sha256, url, version
 _last_check_time = 0             # Epoch timestamp of last version check
 _check_lock = threading.Lock()   # Prevent concurrent checks
 _download_failures = 0           # Consecutive download failure count
@@ -321,16 +322,25 @@ def _download_and_apply(update_info: dict) -> bool:
             update_info["url"], tmp_path, timeout=DOWNLOAD_TIMEOUT
         )
 
-        # Verify checksum if provided
-        if update_info.get("sha256"):
-            if actual_hash != update_info["sha256"]:
-                logger.error(
-                    f"Checksum mismatch: expected {update_info['sha256']}, "
-                    f"got {actual_hash}"
-                )
-                tmp_path.unlink(missing_ok=True)
-                _download_failures += 1
-                return False
+        # Verify checksum — MANDATORY. Never swap without verification.
+        expected_hash = update_info.get("sha256", "")
+        if not expected_hash:
+            logger.error(
+                "No checksum available for verification — refusing to swap. "
+                "This prevents corrupted/truncated binaries from bricking the install."
+            )
+            tmp_path.unlink(missing_ok=True)
+            _download_failures += 1
+            return False
+
+        if actual_hash != expected_hash:
+            logger.error(
+                f"Checksum mismatch: expected {expected_hash}, "
+                f"got {actual_hash}. Binary is likely truncated or corrupted."
+            )
+            tmp_path.unlink(missing_ok=True)
+            _download_failures += 1
+            return False
 
         # Verify the downloaded file looks like a valid binary
         if not _verify_binary(tmp_path):
@@ -416,7 +426,7 @@ def _do_version_check():
     Called by both the background loop and on-demand from health endpoint.
     Returns update_info dict if update found, None otherwise.
     """
-    global _update_pending, _update_version, _last_check_time
+    global _update_pending, _update_version, _cached_update_info, _last_check_time
 
     with _check_lock:
         try:
@@ -427,8 +437,12 @@ def _do_version_check():
                 # Set the flag IMMEDIATELY when detected -- before download
                 _update_pending = True
                 _update_version = update_info['version']
+                # Cache the FULL update_info including sha256 and url
+                # so on-demand downloads always have the checksum
+                _cached_update_info = update_info
                 logger.info(
-                    f"Update detected: {VERSION} -> {update_info['version']}"
+                    f"Update detected: {VERSION} -> {update_info['version']} "
+                    f"(sha256: {update_info.get('sha256', 'N/A')[:16]}...)"
                 )
                 return update_info
             return None
@@ -571,14 +585,19 @@ def apply_update_now() -> dict:
             "User clicked Update Now but binary not downloaded yet. "
             "Triggering download..."
         )
-        if _update_version:
+        if _cached_update_info:
+            # Use the CACHED update_info which has the real sha256
             threading.Thread(
                 target=_download_and_apply,
-                args=({"version": _update_version, "sha256": "",
-                       "url": f"{R2_PUBLIC_URL}/{_get_platform_key()}"},),
+                args=(_cached_update_info,),
                 daemon=True,
                 name="update-download-ondemand"
             ).start()
+        else:
+            logger.error(
+                "No cached update info with checksum — cannot download safely. "
+                "Waiting for next version check cycle."
+            )
         return {"status": "downloading"}
 
     logger.info("User requested immediate update restart")
