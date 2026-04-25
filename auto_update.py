@@ -39,13 +39,17 @@ logger = logging.getLogger("hermes.updater")
 # ── Update state (thread-safe: only written by updater thread) ──────────
 _update_pending = False
 _update_version = None
+_update_downloaded = False  # True once binary is swapped on disk
+_last_check_time = 0  # Epoch timestamp of last version check
+_check_lock = threading.Lock()  # Prevent concurrent checks
 
 # ─── Configuration ──────────────────────────────────────────────────────
 R2_PUBLIC_URL = "https://dl.hermdash.com"
 VERSION_URL = f"{R2_PUBLIC_URL}/version.json"
-CHECK_INTERVAL = 3600  # Check every 1 hour (seconds)
+CHECK_INTERVAL = 300  # Check every 5 minutes (seconds)
 DOWNLOAD_TIMEOUT = 180  # 3 min timeout for binary download
 VERSION_CHECK_TIMEOUT = 10  # 10s timeout for version check
+STALE_CHECK_THRESHOLD = 120  # On-demand re-check if last check > 2 min ago
 
 # Import local version
 try:
@@ -272,10 +276,9 @@ def _download_and_apply(update_info: dict) -> bool:
         logger.info(f"Updated binary on disk to v{update_info['version']}")
         logger.info("Update will take effect on next restart (NOT restarting now)")
 
-        # Set the pending flag — dashboard can read this via /health
-        global _update_pending, _update_version
-        _update_pending = True
-        _update_version = update_info['version']
+        # Mark binary as downloaded and ready to apply
+        global _update_downloaded
+        _update_downloaded = True
 
         return True
 
@@ -309,18 +312,43 @@ def _apply_pending_update():
 
 # ─── Background Daemon ─────────────────────────────────────────────────
 
+def _do_version_check():
+    """
+    Perform a single version check and update flags.
+    Called by both the background loop and on-demand from health endpoint.
+    Returns update_info dict if update found, None otherwise.
+    """
+    global _update_pending, _update_version, _last_check_time
+
+    with _check_lock:
+        try:
+            update_info = _check_for_update()
+            _last_check_time = time.time()
+
+            if update_info:
+                # Set the flag IMMEDIATELY when detected — before download
+                _update_pending = True
+                _update_version = update_info['version']
+                logger.info(
+                    f"Update detected: {VERSION} -> {update_info['version']}"
+                )
+                return update_info
+            return None
+        except Exception as e:
+            logger.error(f"Version check error: {e}")
+            return None
+
+
 def _update_loop():
     """Main update loop — runs forever in background thread."""
-    # Wait a bit after startup before first check (let server stabilize)
-    time.sleep(30)
+    # Short delay to let server stabilize
+    time.sleep(5)
 
     while True:
         try:
-            update_info = _check_for_update()
+            update_info = _do_version_check()
             if update_info:
-                logger.info(
-                    f"Update available: {VERSION} → {update_info['version']}"
-                )
+                # Try to download (best effort — flag is already set)
                 _download_and_apply(update_info)
         except Exception as e:
             logger.error(f"Update loop error: {e}")
@@ -352,12 +380,28 @@ def start_auto_updater():
 
 def is_update_available() -> dict | None:
     """
-    Check if an update has been downloaded and is waiting to be applied.
+    Check if a newer version exists.
     Called by the bridge's /health endpoint to inform the dashboard.
-    Returns {"version": "x.y.z"} if update pending, None otherwise.
+    Returns {"version": "x.y.z", "downloaded": bool} if update found, None otherwise.
+
+    On first call (or if stale), triggers a background version check so the
+    dashboard doesn't have to wait for the hourly loop.
     """
+    global _last_check_time
+
+    # If we already know about an update, return it immediately
     if _update_pending and _update_version:
-        return {"version": _update_version}
+        return {"version": _update_version, "downloaded": _update_downloaded}
+
+    # Otherwise, if it's been a while since we checked, kick off a
+    # non-blocking check so the NEXT health poll has fresh data
+    now = time.time()
+    if now - _last_check_time > STALE_CHECK_THRESHOLD:
+        _last_check_time = now  # Prevent stampede
+        threading.Thread(
+            target=_do_version_check, daemon=True, name="update-check-ondemand"
+        ).start()
+
     return None
 
 
