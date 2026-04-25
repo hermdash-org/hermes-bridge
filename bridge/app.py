@@ -47,6 +47,29 @@ def create_app() -> FastAPI:
         version=VERSION,
     )
 
+    # Private Network Access (PNA) support — Chrome requires this header
+    # for requests from public origins (hermdash.com) to localhost.
+    # FastAPI's CORSMiddleware doesn't support PNA yet.
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            # Handle preflight OPTIONS with PNA header
+            if request.method == "OPTIONS":
+                response = Response(status_code=204)
+                response.headers["Access-Control-Allow-Origin"] = request.headers.get("Origin", "*")
+                response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+                response.headers["Access-Control-Allow-Headers"] = "*"
+                response.headers["Access-Control-Allow-Private-Network"] = "true"
+                return response
+            response = await call_next(request)
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+            return response
+
+    app.add_middleware(PrivateNetworkAccessMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
