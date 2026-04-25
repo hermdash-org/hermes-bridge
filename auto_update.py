@@ -2,16 +2,20 @@
 Silent Auto-Updater for Hermes Runtime
 =======================================
 Runs as a background daemon thread. Periodically checks R2 for new versions,
-downloads the binary, swaps it in place, and restarts the service — all without
-the user noticing.
+downloads the binary, and swaps it in place on disk.
+
+CRITICAL: The updater NEVER restarts the running process. The new binary
+sits on disk until the next natural restart (user closes app, system reboot,
+or user clicks "Update Now" in the dashboard). This prevents mid-session
+crashes that kill active chats.
 
 Flow:
   1. Background thread wakes every CHECK_INTERVAL seconds
   2. Fetches version.json from R2 (tiny file, ~50 bytes)
   3. Compares with local VERSION
-  4. If newer → downloads binary to .tmp file
-  5. Swaps running binary atomically
-  6. Restarts via systemd/launchd/Windows Task Scheduler
+  4. If newer -> downloads binary, verifies checksum, swaps on disk
+  5. Sets update_available flag -> dashboard shows "Update ready" banner
+  6. On next startup, the new binary loads automatically
 """
 
 import sys
@@ -31,6 +35,10 @@ except ImportError:
     requests = None
 
 logger = logging.getLogger("hermes.updater")
+
+# ── Update state (thread-safe: only written by updater thread) ──────────
+_update_pending = False
+_update_version = None
 
 # ─── Configuration ──────────────────────────────────────────────────────
 R2_PUBLIC_URL = "https://dl.hermdash.com"
@@ -177,7 +185,7 @@ def _check_for_update() -> dict | None:
         return None
 
     except Exception as e:
-        logger.debug(f"Version check failed (will retry): {e}")
+        logger.warning(f"Version check failed (will retry): {e}")
         return None
 
 
@@ -261,10 +269,14 @@ def _download_and_apply(update_info: dict) -> bool:
             # Unix: atomic replace
             os.replace(tmp_path, binary_path)
 
-        logger.info(f"Updated to v{update_info['version']}, restarting...")
+        logger.info(f"Updated binary on disk to v{update_info['version']}")
+        logger.info("Update will take effect on next restart (NOT restarting now)")
 
-        # Restart the service
-        _restart_service()
+        # Set the pending flag — dashboard can read this via /health
+        global _update_pending, _update_version
+        _update_pending = True
+        _update_version = update_info['version']
+
         return True
 
     except Exception as e:
@@ -335,10 +347,31 @@ def start_auto_updater():
         name="auto-updater"
     )
     thread.start()
-    logger.info(f"Auto-updater started (checking every {CHECK_INTERVAL}s)")
+    logger.info(f"Auto-updater started (checking every {CHECK_INTERVAL}s, restart-free)")
+
+
+def is_update_available() -> dict | None:
+    """
+    Check if an update has been downloaded and is waiting to be applied.
+    Called by the bridge's /health endpoint to inform the dashboard.
+    Returns {"version": "x.y.z"} if update pending, None otherwise.
+    """
+    if _update_pending and _update_version:
+        return {"version": _update_version}
+    return None
+
+
+def apply_update_now():
+    """
+    User clicked 'Update Now' in dashboard. Restart the service.
+    Only call this when the user explicitly requests it.
+    """
+    if _update_pending:
+        logger.info("User requested immediate update restart")
+        _restart_service()
 
 
 # Legacy function name for backward compatibility
 def check_and_update():
-    """Legacy entry point — now just starts the background updater."""
+    """Legacy entry point -- now just starts the background updater."""
     start_auto_updater()

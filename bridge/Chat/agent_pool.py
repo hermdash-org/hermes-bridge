@@ -80,8 +80,23 @@ logger = logging.getLogger("bridge.pool")
 #   - Custom HERMES_HOME=/some/path      → root = /some/path
 
 _hermes_root: Path = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes"))
-_active_profile: str = "default"
 _profile_dbs: dict = {}
+_STICKY_FILE: Path = _hermes_root / ".active_profile"  # survives restarts
+
+
+def _load_sticky_profile() -> str:
+    """Read the last active profile from disk. Returns 'default' if not set."""
+    try:
+        if _STICKY_FILE.exists():
+            name = _STICKY_FILE.read_text(encoding="utf-8").strip()
+            if name and (name == "default" or (_hermes_root / "profiles" / name).exists()):
+                return name
+    except Exception:
+        pass
+    return "default"
+
+
+_active_profile: str = _load_sticky_profile()  # restored from disk on startup
 _profile_dbs_lock = threading.Lock()
 
 
@@ -130,10 +145,17 @@ def set_active_profile(name: str) -> None:
 
     Computes the new home from _hermes_root (stable), then sets
     HERMES_HOME for hermes-agent internals that read it from env.
+    Persists the choice to disk so restarts restore the correct profile.
     """
     global _active_profile
     old_profile = _active_profile
     _active_profile = name
+
+    # Persist to disk — survives runtime restarts/updates
+    try:
+        _STICKY_FILE.write_text(name, encoding="utf-8")
+    except Exception as e:
+        logger.warning("Could not persist active profile to disk: %s", e)
 
     # Compute from the STABLE root — NOT from os.getenv("HERMES_HOME")
     new_home = get_profile_home(name)
@@ -515,6 +537,15 @@ def get_agent(session_id: str, streaming_session_id: str = None):
             if _user_ephemeral:
                 _combined_ephemeral = (_combined_ephemeral + "\n\n" + _user_ephemeral).strip()
 
+            # Toolsets: prefer config.yaml resolution from build_agent_kwargs
+            # (matches the official TUI gateway's _load_enabled_toolsets).
+            # Env var override preserved for backward compat, but config.yaml
+            # is now the primary source — no more hardcoded "hermes-cli" gate.
+            resolved_toolsets = extra_kwargs.pop("enabled_toolsets", None)
+            env_toolsets = os.environ.get("HEMUI_TOOLSETS")
+            if env_toolsets:
+                resolved_toolsets = [t.strip() for t in env_toolsets.split(",") if t.strip()]
+
             agent = _get_AIAgent()(
                 model=current_model,
                 api_key=os.environ.get("OPENROUTER_API_KEY", ""),
@@ -524,7 +555,7 @@ def get_agent(session_id: str, streaming_session_id: str = None):
                 session_id=session_id,
                 session_db=db,
                 quiet_mode=True,
-                enabled_toolsets=os.environ.get("HEMUI_TOOLSETS", "hermes-cli").split(","),
+                enabled_toolsets=resolved_toolsets,
                 ephemeral_system_prompt=_combined_ephemeral or None,
                 **extra_kwargs,
             )

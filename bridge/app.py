@@ -69,15 +69,24 @@ def create_app() -> FastAPI:
         except Exception:
             pass
 
+        # Check if an update has been downloaded and is waiting
+        update_info = None
+        try:
+            from auto_update import is_update_available
+            update_info = is_update_available()
+        except Exception:
+            pass
+
         return {
             "status": "ok",
             "bridge": "hemui",
             "version": VERSION,
             "runtime_version": RUNTIME_VERSION,
-            "hermes_installed": True,  # Always true — bundled in binary
+            "hermes_installed": True,  # Always true -- bundled in binary
             "api_key_set": bool(os.environ.get("OPENROUTER_API_KEY")) or _has_api_key(),
             "active_tasks": active_tasks,
             "active_profile": active_profile,
+            "update_available": update_info,  # None or {"version": "x.y.z"}
         }
 
     # ── API key setup (user still needs to enter their key) ─────────
@@ -116,6 +125,20 @@ def create_app() -> FastAPI:
         os.environ[key_name] = key
 
         return {"status": "ok"}
+
+    # ── Manual update trigger (user clicks "Update Now") ─────────────
+    @app.post("/update/apply")
+    async def apply_update():
+        """User clicked 'Update Now' in dashboard. Restart to apply."""
+        try:
+            from auto_update import apply_update_now, is_update_available
+            info = is_update_available()
+            if info:
+                apply_update_now()
+                return {"status": "restarting", "version": info["version"]}
+            return {"status": "no_update"}
+        except Exception as e:
+            return {"error": str(e)}
 
     # ── Mount all routers (hermes-agent is bundled in the binary) ───
     from .Chat import router as chat_router
