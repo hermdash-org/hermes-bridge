@@ -205,8 +205,12 @@ agent:
 # =============================================================================
 # Platform Toolsets
 # =============================================================================
-platform_toolsets:
-  cli: [hermes-cli]
+# Toolsets are auto-resolved at runtime by hermes_cli.tools_config.
+# Do NOT hardcode a list here — the resolver determines the correct
+# toolsets for your platform and any MCP servers you configure.
+# To restrict toolsets, uncomment and edit:
+# platform_toolsets:
+#   cli: [hermes-cli]
 
 # =============================================================================
 # STT Configuration
