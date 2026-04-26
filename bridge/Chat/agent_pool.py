@@ -419,15 +419,94 @@ def _get_tool_state(session_id: str) -> dict:
 def _make_tool_progress_callback(session_id: str):
     """Tool lifecycle callback matching tui_gateway/server.py architecture.
     
-    Handles reasoning.available events only.
-    Tool start/complete are handled by separate callbacks.
+    Handles:
+    - reasoning.available events
+    - subagent.* events (start, complete, thinking, progress, tool)
+    
+    Matches tui_gateway/server.py:_on_tool_progress (line 1087+)
     """
     def callback(event_type, tool_name=None, preview=None, args=None, **kwargs):
+        # DEBUG: Print to console
+        print(f"[TOOL_PROGRESS] event_type={event_type}, tool_name={tool_name}, session={session_id}")
+        
+        # Handle reasoning events
         if event_type == "reasoning.available":
             push_stream_event(session_id, {
                 "type": "reasoning",
                 "data": {"text": preview or "", "ts": time.time()},
             })
+            return
+
+        # Handle subagent events (matches tui_gateway/server.py line 1087)
+        if event_type.startswith("subagent."):
+            print(f"[SUBAGENT EVENT] {event_type} - goal: {kwargs.get('goal', 'N/A')}")
+            print(f"[SUBAGENT PUSH] Pushing {event_type} to session {session_id}")
+            payload = {
+                "goal": str(kwargs.get("goal") or ""),
+                "task_count": int(kwargs.get("task_count") or 1),
+                "task_index": int(kwargs.get("task_index") or 0),
+                "ts": time.time(),
+            }
+            
+            # Identity fields for subagent tree (all optional)
+            if kwargs.get("subagent_id"):
+                payload["subagent_id"] = str(kwargs["subagent_id"])
+            if kwargs.get("parent_id"):
+                payload["parent_id"] = str(kwargs["parent_id"])
+            if kwargs.get("depth") is not None:
+                payload["depth"] = int(kwargs["depth"])
+            if kwargs.get("model"):
+                payload["model"] = str(kwargs["model"])
+            if kwargs.get("tool_count") is not None:
+                payload["tool_count"] = int(kwargs["tool_count"])
+            if kwargs.get("toolsets"):
+                payload["toolsets"] = [str(t) for t in kwargs["toolsets"]]
+                
+            # Status and summary fields
+            if kwargs.get("status"):
+                payload["status"] = str(kwargs["status"])
+            if kwargs.get("summary"):
+                payload["summary"] = str(kwargs["summary"])
+            if kwargs.get("duration_seconds") is not None:
+                payload["duration_seconds"] = float(kwargs["duration_seconds"])
+                
+            # Tool-specific fields
+            if tool_name:
+                payload["tool_name"] = str(tool_name)
+            if preview:
+                payload["text"] = str(preview)
+                if event_type == "subagent.tool":
+                    payload["tool_preview"] = str(preview)
+                    
+            # Cost and usage tracking
+            for int_key in ("input_tokens", "output_tokens", "reasoning_tokens", "api_calls"):
+                val = kwargs.get(int_key)
+                if val is not None:
+                    try:
+                        payload[int_key] = int(val)
+                    except (TypeError, ValueError):
+                        pass
+                        
+            if kwargs.get("cost_usd") is not None:
+                try:
+                    payload["cost_usd"] = float(kwargs["cost_usd"])
+                except (TypeError, ValueError):
+                    pass
+                    
+            # File operations tracking
+            if kwargs.get("files_read"):
+                payload["files_read"] = [str(p) for p in kwargs["files_read"]]
+            if kwargs.get("files_written"):
+                payload["files_written"] = [str(p) for p in kwargs["files_written"]]
+            if kwargs.get("output_tail"):
+                payload["output_tail"] = list(kwargs["output_tail"])
+
+            # Send the subagent event
+            push_stream_event(session_id, {
+                "type": event_type,  # subagent.start, subagent.complete, etc.
+                "data": payload,
+            })
+            print(f"[SUBAGENT PUSHED] Event {event_type} pushed to SSE for session {session_id}")
 
     return callback
 
@@ -526,6 +605,8 @@ def _make_tool_complete_callback(session_id: str):
         # Add inline_diff for file edits (matches tui_gateway/server.py line 1056)
         try:
             from agent.display import render_edit_diff_with_delta
+            import re
+            
             rendered: list[str] = []
             if render_edit_diff_with_delta(
                 name,
@@ -534,7 +615,12 @@ def _make_tool_complete_callback(session_id: str):
                 snapshot=snapshot,
                 print_fn=rendered.append,
             ):
-                payload["inline_diff"] = "\n".join(rendered)
+                # Strip ANSI color codes for web display
+                diff_text = "\n".join(rendered)
+                # Remove ANSI escape sequences (color codes)
+                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                clean_diff = ansi_escape.sub('', diff_text)
+                payload["inline_diff"] = clean_diff
         except Exception:
             pass
 
