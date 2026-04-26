@@ -103,10 +103,16 @@ _PROVIDER_UI_META = {
     },
     "deepseek": {
         "name": "DeepSeek",
-        "description": "DeepSeek V3/R1 — cost-effective coding models",
+        "description": "DeepSeek V4 — powerful reasoning, 1M context, 75% off until May 5th",
         "url": "https://platform.deepseek.com/api_keys",
         "auth_method": "api_key",
         "has_credits": False,
+        "models": [
+            {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "context": 1048576},
+            {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "context": 1048576},
+            {"id": "deepseek-chat", "name": "DeepSeek Chat (legacy)", "context": 65536},
+            {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner (legacy)", "context": 65536},
+        ],
     },
     "zai": {
         "name": "Z.AI / GLM",
