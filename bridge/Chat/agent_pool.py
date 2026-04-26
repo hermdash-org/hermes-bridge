@@ -441,12 +441,13 @@ def _make_background_review_callback(session_id: str):
 
 # ── Agent Access ────────────────────────────────────────────────────
 
-def _get_config_model() -> str:
-    """Read model.default from the active profile's config.yaml.
+_DEFAULT_MODEL = "google/gemini-2.5-flash:free"
 
-    Uses the same profile resolution as hermes_cli:
-      - "default" → ~/.hermes/config.yaml
-      - named     → ~/.hermes/profiles/<name>/config.yaml
+
+def _read_config_model_and_provider() -> tuple[str, str]:
+    """Read (model, provider) from the active profile's config.yaml.
+
+    Returns (model_str, provider_str). Either may be empty string.
     """
     try:
         import yaml
@@ -457,12 +458,82 @@ def _get_config_model() -> str:
                 cfg = yaml.safe_load(f) or {}
             model_cfg = cfg.get("model", {})
             if isinstance(model_cfg, str):
-                return model_cfg
+                return model_cfg, ""
             if isinstance(model_cfg, dict):
-                return model_cfg.get("default") or model_cfg.get("model") or ""
+                return (
+                    model_cfg.get("default") or model_cfg.get("model") or "",
+                    model_cfg.get("provider") or "",
+                )
     except Exception:
         pass
-    return os.environ.get("HEMUI_MODEL", "")
+    return os.environ.get("HEMUI_MODEL", ""), os.environ.get("HEMUI_PROVIDER", "")
+
+
+def _get_config_model() -> str:
+    """Read model from active profile's config.yaml. Returns empty string if not set."""
+    model, _ = _read_config_model_and_provider()
+    return model
+
+
+def _get_config_provider() -> str:
+    """Read provider from active profile's config.yaml."""
+    _, provider = _read_config_model_and_provider()
+    return provider
+
+
+def _resolve_provider_info(provider_id: str) -> dict:
+    """Resolve provider ID → credentials for AIAgent creation.
+
+    Uses the upstream PROVIDER_REGISTRY when available (bridge runs
+    inside hermes venv). Falls back to sensible OpenRouter defaults
+    for unknown/empty providers.
+
+    Returns a dict with keys:
+      - provider: str (canonical provider ID)
+      - api_key: str
+      - base_url: str
+    """
+    if not provider_id:
+        provider_id = "openrouter"
+
+    try:
+        from hermes_cli.auth import PROVIDER_REGISTRY
+
+        pconf = PROVIDER_REGISTRY.get(provider_id)
+        if pconf is not None:
+            # Resolve API key: try each env var name in order
+            api_key = ""
+            for env_name in pconf.api_key_env_vars:
+                val = os.environ.get(env_name, "")
+                if val:
+                    api_key = val
+                    break
+
+            # Resolve base URL: env var override or fallback to default
+            base_url = pconf.inference_base_url or ""
+            if pconf.base_url_env_var:
+                env_url = os.environ.get(pconf.base_url_env_var, "")
+                if env_url:
+                    base_url = env_url
+
+            return {
+                "provider": provider_id,
+                "api_key": api_key,
+                "base_url": base_url,
+            }
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    # Fallback: OpenRouter defaults
+    return {
+        "provider": "openrouter",
+        "api_key": os.environ.get("OPENROUTER_API_KEY", ""),
+        "base_url": os.environ.get(
+            "HEMUI_BASE_URL", "https://openrouter.ai/api/v1"
+        ),
+    }
 
 
 def get_agent(session_id: str, streaming_session_id: str = None):
@@ -476,17 +547,23 @@ def get_agent(session_id: str, streaming_session_id: str = None):
         if session_id in agent_cache:
             cached_gen = getattr(agent_cache[session_id], '_hemui_model_gen', -1)
             if cached_gen != current_gen:
-                new_model = _get_config_model() or "google/gemini-2.5-flash:free"
+                new_model = _get_config_model() or _DEFAULT_MODEL
                 old_model = getattr(agent_cache[session_id], 'model', 'unknown')
 
                 # Switch every cached agent in-place
                 for sid, cached_agent in list(agent_cache.items()):
                     try:
+                        provider_id = _get_config_provider() or "openrouter"
+                        provider_info = _resolve_provider_info(provider_id)
+                        api_key = provider_info["api_key"]
+                        base_url = provider_info["base_url"]
+                        provider_name = provider_info["provider"]
+                        
                         cached_agent.switch_model(
                             new_model=new_model,
-                            new_provider=os.environ.get("HEMUI_PROVIDER", "openrouter"),
-                            api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-                            base_url=os.environ.get("HEMUI_BASE_URL", "https://openrouter.ai/api/v1"),
+                            new_provider=provider_name,
+                            api_key=api_key,
+                            base_url=base_url,
                         )
                         cached_agent._hemui_model_gen = current_gen
                     except Exception:
@@ -504,7 +581,9 @@ def get_agent(session_id: str, streaming_session_id: str = None):
 
         # Create new agent if needed
         if session_id not in agent_cache:
-            current_model = _get_config_model() or "google/gemini-2.5-flash:free"
+            current_model = _get_config_model() or _DEFAULT_MODEL
+            current_provider = _get_config_provider() or "openrouter"
+            provider_info = _resolve_provider_info(current_provider)
 
             # Gap 4,5,6,7,9: Read full config from config.yaml
             profile_home = get_profile_home(_active_profile)
@@ -548,9 +627,9 @@ def get_agent(session_id: str, streaming_session_id: str = None):
 
             agent = _get_AIAgent()(
                 model=current_model,
-                api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-                base_url=os.environ.get("HEMUI_BASE_URL", "https://openrouter.ai/api/v1"),
-                provider=os.environ.get("HEMUI_PROVIDER", "openrouter"),
+                api_key=provider_info["api_key"],
+                base_url=provider_info["base_url"],
+                provider=provider_info["provider"],
                 platform="hemui",
                 session_id=session_id,
                 session_db=db,
@@ -561,8 +640,8 @@ def get_agent(session_id: str, streaming_session_id: str = None):
             )
             agent._hemui_model_gen = current_gen
             agent_cache[session_id] = agent
-
-        agent = agent_cache[session_id]
+        cached_agent = agent_cache[session_id]
+        agent._hemui_model_gen = current_gen
         agent.session_id = session_id
         agent._last_flushed_db_idx = 0
 
@@ -599,7 +678,21 @@ def get_agent(session_id: str, streaming_session_id: str = None):
             session_id, push_stream_event
         )
 
-        return agent, approval_ctx
+        # Resolve provider info dynamically
+        provider_id = os.environ.get("HEMUI_PROVIDER", "openrouter")
+        return _resolve_provider_info(provider_id), approval_ctx
+
+
+def _resolve_provider_info(provider_id: str):
+    """Return API config for a given provider ID from PROVIDER_REGISTRY."""
+    registry = PROVIDER_REGISTRY.get(provider_id)
+    if not registry:
+        raise ValueError(f"Provider {provider_id} not registered")
+    return {
+        "api_key": os.environ.get(f"{provider_id.upper()}_API_KEY"),
+        "base_url": registry["base_url"],
+        "provider": provider_id,
+    }
 
 
 def get_conversation_history(session_id: str) -> list:
