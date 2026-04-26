@@ -14,6 +14,7 @@ Routes:
   GET  /providers/{id}/status  — single provider status
   POST /providers/{id}/key     — save an API key for a provider
   DELETE /providers/{id}/key   — remove a provider's API key
+  GET  /providers/deepseek/balance — fetch DeepSeek account balance
 """
 
 import os
@@ -24,9 +25,15 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+# Import DeepSeek balance router
+from .deepseek_balance import router as deepseek_balance_router
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/providers", tags=["providers"])
+
+# Include DeepSeek balance routes
+router.include_router(deepseek_balance_router)
 
 # ── Constants (mirroring hermes_constants.py) ──────────────────────
 
@@ -103,10 +110,16 @@ _PROVIDER_UI_META = {
     },
     "deepseek": {
         "name": "DeepSeek",
-        "description": "DeepSeek V3/R1 — cost-effective coding models",
+        "description": "DeepSeek V4 — powerful reasoning, 1M context, 75% off until May 5th",
         "url": "https://platform.deepseek.com/api_keys",
         "auth_method": "api_key",
         "has_credits": False,
+        "models": [
+            {"id": "deepseek-v4-pro", "name": "DeepSeek V4 Pro", "context": 1048576},
+            {"id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash", "context": 1048576},
+            {"id": "deepseek-chat", "name": "DeepSeek Chat (legacy)", "context": 65536},
+            {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner (legacy)", "context": 65536},
+        ],
     },
     "zai": {
         "name": "Z.AI / GLM",

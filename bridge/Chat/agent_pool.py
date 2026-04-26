@@ -327,53 +327,222 @@ def signal_stream_done(session_id: str):
     _push_to_subscribers(session_id, None)
 
 
+# ── Tool Event Helpers (from tui_gateway/server.py) ────────────────
+
+def _tool_ctx(name: str, args: dict) -> str:
+    """Build tool context string (preview of primary argument).
+    
+    Matches tui_gateway/server.py:_tool_ctx (line 973).
+    """
+    try:
+        from agent.display import build_tool_preview
+        return build_tool_preview(name, args, max_len=80) or ""
+    except Exception:
+        return ""
+
+
+def _fmt_tool_duration(seconds: float | None) -> str:
+    """Format duration for display.
+    
+    Matches tui_gateway/server.py:_fmt_tool_duration (line 978).
+    """
+    if seconds is None:
+        return ""
+    if seconds < 10:
+        return f"{seconds:.1f}s"
+    if seconds < 60:
+        return f"{round(seconds)}s"
+    mins, secs = divmod(int(round(seconds)), 60)
+    return f"{mins}m {secs}s" if secs else f"{mins}m"
+
+
+def _count_list(obj: object, *path: str) -> int | None:
+    """Navigate nested dict and count list length.
+    
+    Matches tui_gateway/server.py:_count_list (line 988).
+    """
+    cur = obj
+    for key in path:
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(key)
+    return len(cur) if isinstance(cur, list) else None
+
+
+def _tool_summary(name: str, result: str, duration_s: float | None) -> str | None:
+    """Generate human-readable summary of tool execution.
+    
+    Matches tui_gateway/server.py:_tool_summary (line 996).
+    """
+    import json
+    try:
+        data = json.loads(result)
+    except Exception:
+        data = None
+
+    dur = _fmt_tool_duration(duration_s)
+    suffix = f" in {dur}" if dur else ""
+    text = None
+
+    if name == "web_search" and isinstance(data, dict):
+        n = _count_list(data, "data", "web")
+        if n is not None:
+            text = f"Did {n} {'search' if n == 1 else 'searches'}"
+
+    elif name == "web_extract" and isinstance(data, dict):
+        n = _count_list(data, "results") or _count_list(data, "data", "results")
+        if n is not None:
+            text = f"Extracted {n} {'page' if n == 1 else 'pages'}"
+
+    return f"{text or 'Completed'}{suffix}" if (text or dur) else None
+
+
+# ── Per-session tool state (for edit snapshots and timing) ────────
+# Shared between tool_start_callback and tool_complete_callback
+_tool_session_state: dict[str, dict] = {}
+_tool_session_state_lock = threading.Lock()
+
+
+def _get_tool_state(session_id: str) -> dict:
+    """Get or create tool state dict for a session."""
+    with _tool_session_state_lock:
+        if session_id not in _tool_session_state:
+            _tool_session_state[session_id] = {
+                "edit_snapshots": {},
+                "tool_started_at": {},
+            }
+        return _tool_session_state[session_id]
+
+
 # ── Callback Factories ──────────────────────────────────────────────
 
 def _make_tool_progress_callback(session_id: str):
+    """Tool lifecycle callback matching tui_gateway/server.py architecture.
+    
+    Handles reasoning.available events only.
+    Tool start/complete are handled by separate callbacks.
+    """
+    def callback(event_type, tool_name=None, preview=None, args=None, **kwargs):
+        if event_type == "reasoning.available":
+            push_stream_event(session_id, {
+                "type": "reasoning",
+                "data": {"text": preview or "", "ts": time.time()},
+            })
+
+    return callback
+
+
+def _make_tool_start_callback(session_id: str):
+    """Tool start callback matching tui_gateway/server.py:_on_tool_start (line 1020).
+    
+    Captures edit snapshots for diff generation and tracks start time.
+    Called by run_agent.py:8391 with (tool_call_id, name, args).
+    """
     # Import registry once at callback creation time
     try:
         from tools.registry import registry as _tool_registry
     except ImportError:
         _tool_registry = None
 
-    def callback(event_type, tool_name=None, preview=None, args=None, **kwargs):
+    def callback(tool_call_id: str, name: str, args: dict):
+        state = _get_tool_state(session_id)
+        
+        # Capture edit snapshot for diff generation
+        try:
+            from agent.display import capture_local_edit_snapshot
+            snapshot = capture_local_edit_snapshot(name, args)
+            if snapshot is not None:
+                state["edit_snapshots"][tool_call_id] = snapshot
+        except Exception:
+            pass
+        
+        state["tool_started_at"][tool_call_id] = time.time()
+
         # Enrich with emoji + toolset from the core engine registry
         emoji = "⚡"
         toolset = "unknown"
-        if _tool_registry and tool_name:
-            emoji = _tool_registry.get_emoji(tool_name, default="⚡")
-            toolset = _tool_registry.get_toolset_for_tool(tool_name) or "unknown"
+        if _tool_registry and name:
+            emoji = _tool_registry.get_emoji(name, default="⚡")
+            toolset = _tool_registry.get_toolset_for_tool(name) or "unknown"
 
-        if event_type == "tool.started":
-            push_stream_event(session_id, {
-                "type": "tool_started",
-                "data": {
-                    "tool": tool_name,
-                    "emoji": emoji,
-                    "toolset": toolset,
-                    "preview": preview,
-                    "args": args,
-                    "ts": time.time(),
-                },
-            })
-        elif event_type == "tool.completed":
-            push_stream_event(session_id, {
-                "type": "tool_completed",
-                "data": {
-                    "tool": tool_name,
-                    "emoji": emoji,
-                    "toolset": toolset,
-                    "preview": preview,
-                    "duration": round(kwargs.get("duration", 0), 3),
-                    "is_error": kwargs.get("is_error", False),
-                    "ts": time.time(),
-                },
-            })
-        elif event_type == "reasoning.available":
-            push_stream_event(session_id, {
-                "type": "reasoning",
-                "data": {"text": preview or "", "ts": time.time()},
-            })
+        # Send tool_started event (matches tui_gateway/server.py line 1032)
+        push_stream_event(session_id, {
+            "type": "tool_started",
+            "data": {
+                "tool_id": tool_call_id,
+                "tool": name,
+                "emoji": emoji,
+                "toolset": toolset,
+                "context": _tool_ctx(name, args or {}),
+                "ts": time.time(),
+            },
+        })
+
+    return callback
+
+
+def _make_tool_complete_callback(session_id: str):
+    """Tool complete callback matching tui_gateway/server.py:_on_tool_complete (line 1038).
+    
+    Generates summary and inline_diff, then sends tool_completed event.
+    Called by run_agent.py:8568 with (tool_call_id, name, args, result).
+    """
+    # Import registry once at callback creation time
+    try:
+        from tools.registry import registry as _tool_registry
+    except ImportError:
+        _tool_registry = None
+
+    def callback(tool_call_id: str, name: str, args: dict, result: str):
+        state = _get_tool_state(session_id)
+        
+        # Retrieve snapshot and start time
+        snapshot = state["edit_snapshots"].pop(tool_call_id, None)
+        started_at = state["tool_started_at"].pop(tool_call_id, None)
+        duration_s = time.time() - started_at if started_at else None
+
+        # Enrich with emoji + toolset from the core engine registry
+        emoji = "⚡"
+        toolset = "unknown"
+        if _tool_registry and name:
+            emoji = _tool_registry.get_emoji(name, default="⚡")
+            toolset = _tool_registry.get_toolset_for_tool(name) or "unknown"
+
+        # Build payload (matches tui_gateway/server.py line 1040)
+        payload = {
+            "tool_id": tool_call_id,
+            "tool": name,
+            "emoji": emoji,
+            "toolset": toolset,
+            "duration": round(duration_s, 3) if duration_s else 0,
+            "ts": time.time(),
+        }
+
+        # Add summary (matches tui_gateway/server.py line 1050)
+        summary = _tool_summary(name, result, duration_s)
+        if summary:
+            payload["summary"] = summary
+
+        # Add inline_diff for file edits (matches tui_gateway/server.py line 1056)
+        try:
+            from agent.display import render_edit_diff_with_delta
+            rendered: list[str] = []
+            if render_edit_diff_with_delta(
+                name,
+                result,
+                function_args=args,
+                snapshot=snapshot,
+                print_fn=rendered.append,
+            ):
+                payload["inline_diff"] = "\n".join(rendered)
+        except Exception:
+            pass
+
+        push_stream_event(session_id, {
+            "type": "tool_completed",
+            "data": payload,
+        })
+
     return callback
 
 
@@ -441,12 +610,13 @@ def _make_background_review_callback(session_id: str):
 
 # ── Agent Access ────────────────────────────────────────────────────
 
-def _get_config_model() -> str:
-    """Read model.default from the active profile's config.yaml.
+_DEFAULT_MODEL = "google/gemini-2.5-flash:free"
 
-    Uses the same profile resolution as hermes_cli:
-      - "default" → ~/.hermes/config.yaml
-      - named     → ~/.hermes/profiles/<name>/config.yaml
+
+def _read_config_model_and_provider() -> tuple[str, str]:
+    """Read (model, provider) from the active profile's config.yaml.
+
+    Returns (model_str, provider_str). Either may be empty string.
     """
     try:
         import yaml
@@ -457,12 +627,102 @@ def _get_config_model() -> str:
                 cfg = yaml.safe_load(f) or {}
             model_cfg = cfg.get("model", {})
             if isinstance(model_cfg, str):
-                return model_cfg
+                return model_cfg, ""
             if isinstance(model_cfg, dict):
-                return model_cfg.get("default") or model_cfg.get("model") or ""
+                return (
+                    model_cfg.get("default") or model_cfg.get("model") or "",
+                    model_cfg.get("provider") or "",
+                )
     except Exception:
         pass
-    return os.environ.get("HEMUI_MODEL", "")
+    return os.environ.get("HEMUI_MODEL", ""), os.environ.get("HEMUI_PROVIDER", "")
+
+
+def _get_config_model() -> str:
+    """Read model from active profile's config.yaml. Returns empty string if not set."""
+    model, _ = _read_config_model_and_provider()
+    return model
+
+
+def _get_config_provider() -> str:
+    """Read provider from active profile's config.yaml."""
+    _, provider = _read_config_model_and_provider()
+    return provider
+
+
+def _resolve_provider_info(provider_id: str) -> dict:
+    """Resolve provider ID → credentials for AIAgent creation.
+
+    Uses the upstream PROVIDER_REGISTRY when available (bridge runs
+    inside hermes venv). Falls back to sensible OpenRouter defaults
+    for unknown/empty providers.
+
+    Returns a dict with keys:
+      - provider: str (canonical provider ID)
+      - api_key: str
+      - base_url: str
+    """
+    if not provider_id:
+        provider_id = "openrouter"
+
+    try:
+        from hermes_cli.auth import PROVIDER_REGISTRY
+
+        pconf = PROVIDER_REGISTRY.get(provider_id)
+        if pconf is not None:
+            # Resolve API key: try each env var name in order
+            api_key = ""
+            for env_name in pconf.api_key_env_vars:
+                val = os.environ.get(env_name, "")
+                if val:
+                    api_key = val
+                    break
+
+            # Resolve base URL: env var override or fallback to default
+            base_url = pconf.inference_base_url or ""
+            if pconf.base_url_env_var:
+                env_url = os.environ.get(pconf.base_url_env_var, "")
+                if env_url:
+                    base_url = env_url
+
+            return {
+                "provider": provider_id,
+                "api_key": api_key,
+                "base_url": base_url,
+            }
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    # Fallback: Provider-specific defaults
+    if provider_id == "deepseek":
+        return {
+            "provider": "deepseek",
+            "api_key": os.environ.get("DEEPSEEK_API_KEY", ""),
+            "base_url": "https://api.deepseek.com/v1",
+        }
+    elif provider_id == "anthropic":
+        return {
+            "provider": "anthropic", 
+            "api_key": os.environ.get("ANTHROPIC_API_KEY", ""),
+            "base_url": "https://api.anthropic.com",
+        }
+    elif provider_id == "gemini":
+        return {
+            "provider": "gemini",
+            "api_key": os.environ.get("GOOGLE_API_KEY", "") or os.environ.get("GEMINI_API_KEY", ""),
+            "base_url": "https://generativelanguage.googleapis.com/v1beta",
+        }
+    
+    # Fallback: OpenRouter defaults
+    return {
+        "provider": "openrouter",
+        "api_key": os.environ.get("OPENROUTER_API_KEY", ""),
+        "base_url": os.environ.get(
+            "HEMUI_BASE_URL", "https://openrouter.ai/api/v1"
+        ),
+    }
 
 
 def get_agent(session_id: str, streaming_session_id: str = None):
@@ -476,17 +736,23 @@ def get_agent(session_id: str, streaming_session_id: str = None):
         if session_id in agent_cache:
             cached_gen = getattr(agent_cache[session_id], '_hemui_model_gen', -1)
             if cached_gen != current_gen:
-                new_model = _get_config_model() or "google/gemini-2.5-flash:free"
+                new_model = _get_config_model() or _DEFAULT_MODEL
                 old_model = getattr(agent_cache[session_id], 'model', 'unknown')
 
                 # Switch every cached agent in-place
                 for sid, cached_agent in list(agent_cache.items()):
                     try:
+                        provider_id = _get_config_provider() or "openrouter"
+                        provider_info = _resolve_provider_info(provider_id)
+                        api_key = provider_info["api_key"]
+                        base_url = provider_info["base_url"]
+                        provider_name = provider_info["provider"]
+                        
                         cached_agent.switch_model(
                             new_model=new_model,
-                            new_provider=os.environ.get("HEMUI_PROVIDER", "openrouter"),
-                            api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-                            base_url=os.environ.get("HEMUI_BASE_URL", "https://openrouter.ai/api/v1"),
+                            new_provider=provider_name,
+                            api_key=api_key,
+                            base_url=base_url,
                         )
                         cached_agent._hemui_model_gen = current_gen
                     except Exception:
@@ -504,7 +770,9 @@ def get_agent(session_id: str, streaming_session_id: str = None):
 
         # Create new agent if needed
         if session_id not in agent_cache:
-            current_model = _get_config_model() or "google/gemini-2.5-flash:free"
+            current_model = _get_config_model() or _DEFAULT_MODEL
+            current_provider = _get_config_provider() or "openrouter"
+            provider_info = _resolve_provider_info(current_provider)
 
             # Gap 4,5,6,7,9: Read full config from config.yaml
             profile_home = get_profile_home(_active_profile)
@@ -548,9 +816,9 @@ def get_agent(session_id: str, streaming_session_id: str = None):
 
             agent = _get_AIAgent()(
                 model=current_model,
-                api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-                base_url=os.environ.get("HEMUI_BASE_URL", "https://openrouter.ai/api/v1"),
-                provider=os.environ.get("HEMUI_PROVIDER", "openrouter"),
+                api_key=provider_info["api_key"],
+                base_url=provider_info["base_url"],
+                provider=provider_info["provider"],
                 platform="hemui",
                 session_id=session_id,
                 session_db=db,
@@ -561,8 +829,15 @@ def get_agent(session_id: str, streaming_session_id: str = None):
             )
             agent._hemui_model_gen = current_gen
             agent_cache[session_id] = agent
-
-        agent = agent_cache[session_id]
+            logger.debug("Created new agent for session %s", session_id)
+        else:
+            # Reuse cached agent (matches gateway/run.py:9800-9815)
+            agent = agent_cache[session_id]
+            logger.debug("Reusing cached agent for session %s", session_id)
+        
+        # Per-message state — callbacks change every turn and must not be
+        # baked into the cached agent constructor (gateway/run.py:9850-9860)
+        agent._hemui_model_gen = current_gen
         agent.session_id = session_id
         agent._last_flushed_db_idx = 0
 
@@ -575,6 +850,16 @@ def get_agent(session_id: str, streaming_session_id: str = None):
             )
             # 2. Tool lifecycle (started/completed/reasoning.available)
             agent.tool_progress_callback = _make_tool_progress_callback(
+                streaming_session_id
+            )
+            # 2a. Tool start callback (for edit snapshots + timing)
+            # Matches tui_gateway/server.py:_on_tool_start (line 1020)
+            agent.tool_start_callback = _make_tool_start_callback(
+                streaming_session_id
+            )
+            # 2b. Tool complete callback (for summary + inline_diff)
+            # Matches tui_gateway/server.py:_on_tool_complete (line 1038)
+            agent.tool_complete_callback = _make_tool_complete_callback(
                 streaming_session_id
             )
             # 3. Kawaii thinking spinner
@@ -599,7 +884,14 @@ def get_agent(session_id: str, streaming_session_id: str = None):
             session_id, push_stream_event
         )
 
+        # Resolve provider info dynamically
+        provider_id = _get_config_provider() or "openrouter"
+        provider_info = _resolve_provider_info(provider_id)
+        
         return agent, approval_ctx
+
+
+
 
 
 def get_conversation_history(session_id: str) -> list:
