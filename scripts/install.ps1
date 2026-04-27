@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 
 $IMAGE = "devopsvaults/hermes-dashboard:latest"
 $CONTAINER = "hermes-dashboard"
-$PORT = 8420
+$PORT = 8521
 
 Write-Host ""
 Write-Host "════════════════════════════════════════════════" -ForegroundColor Cyan

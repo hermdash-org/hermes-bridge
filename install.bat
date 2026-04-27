@@ -25,6 +25,8 @@ if not exist "%INSTALL_DIR%\hermes-runtime.exe" (
 )
 
 :: Add to startup (run hidden)
+:: STABILITY NOTE: Windows Startup folder runs AFTER network is ready (unlike Linux systemd)
+:: Combined with Fix #1 (non-blocking auto-update in runtime.py), this ensures reliable startup
 set STARTUP_PATH=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 powershell -Command "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%STARTUP_PATH%\Hermes Runtime.lnk'); $SC.TargetPath = 'powershell.exe'; $SC.Arguments = '-WindowStyle Hidden -Command \"Start-Process -FilePath \"\"%INSTALL_DIR%\hermes-runtime.exe\"\" -WindowStyle Hidden\"'; $SC.WindowStyle = 7; $SC.Save()"
 

@@ -56,7 +56,12 @@ else
     cat > "$HOME/.config/systemd/user/hermes-runtime.service" <<EOF
 [Unit]
 Description=Hermes Runtime
-After=network.target
+# STABILITY FIX #2: Wait for network to be ONLINE, not just "up"
+# Previously: After=network.target (network stack initialized, but no connectivity)
+# Now: After=network-online.target (actual internet connectivity verified)
+# This prevents startup failures when auto-update tries to check for updates before network is ready
+After=network-online.target
+Wants=network-online.target
 StartLimitBurst=5
 StartLimitIntervalSec=60
 
