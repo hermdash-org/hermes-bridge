@@ -129,14 +129,13 @@ async def list_custom_skill_jobs(include_disabled: bool = True):
     try:
         all_jobs = list_jobs(include_disabled=include_disabled)
         
-        # Filter to only jobs using custom skills
-        custom_jobs = [job for job in all_jobs if _job_uses_custom_skills(job)]
-        
+        # No filtering needed — list_jobs() already reads from the
+        # active profile's JOBS_FILE (profile-scoped via set_active_profile).
         return JSONResponse({
             "success": True,
             "profile": get_active_profile(),
-            "count": len(custom_jobs),
-            "jobs": custom_jobs,
+            "count": len(all_jobs),
+            "jobs": all_jobs,
         })
     except Exception as e:
         logger.exception("Failed to list custom skill cron jobs")
