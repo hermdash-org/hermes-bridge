@@ -14,19 +14,27 @@ taskkill /F /IM hermes-runtime.exe >nul 2>&1
 timeout /t 2 /nobreak >nul
 
 :: Download runtime (cache-busting to avoid CDN serving stale binary)
+:: Use PowerShell directly (more reliable than curl on Windows)
 echo Downloading...
 set "TIMESTAMP=%date:~-4%%date:~-7,2%%date:~-10,2%%time:~0,2%%time:~3,2%%time:~6,2%"
 set "TIMESTAMP=%TIMESTAMP: =0%"
-curl -L -H "Cache-Control: no-cache" "%BINARY_URL%?t=%TIMESTAMP%" -o "%INSTALL_DIR%\hermes-runtime.exe"
-
-if not exist "%INSTALL_DIR%\hermes-runtime.exe" (
-    echo Trying with PowerShell...
-    powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%BINARY_URL%' -OutFile '%INSTALL_DIR%\hermes-runtime.exe' -Headers @{'Cache-Control'='no-cache'}"
-)
+powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%BINARY_URL%?t=%TIMESTAMP%' -OutFile '%INSTALL_DIR%\hermes-runtime.exe' -Headers @{'Cache-Control'='no-cache'}"
 
 :: Add to startup (run hidden)
+:: STABILITY NOTE: Windows Startup folder runs AFTER network is ready (unlike Linux systemd)
+:: Combined with Fix #1 (non-blocking auto-update in runtime.py), this ensures reliable startup
+:: 
+:: Strategy: Create a VBScript that launches the runtime hidden, then create shortcut to VBScript
+:: This avoids PowerShell quote escaping hell and works reliably across all Windows versions
 set STARTUP_PATH=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-powershell -Command "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%STARTUP_PATH%\Hermes Runtime.lnk'); $SC.TargetPath = 'powershell.exe'; $SC.Arguments = '-WindowStyle Hidden -Command \"Start-Process -FilePath \"\"%INSTALL_DIR%\hermes-runtime.exe\"\" -WindowStyle Hidden\"'; $SC.WindowStyle = 7; $SC.Save()"
+set VBS_PATH=%INSTALL_DIR%\start-hidden.vbs
+
+:: Create VBScript launcher (runs exe hidden, no console window)
+echo Set WshShell = CreateObject("WScript.Shell") > "%VBS_PATH%"
+echo WshShell.Run """%INSTALL_DIR%\hermes-runtime.exe""", 0, False >> "%VBS_PATH%"
+
+:: Create shortcut to VBScript
+powershell -Command "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%STARTUP_PATH%\Hermes Runtime.lnk'); $SC.TargetPath = 'wscript.exe'; $SC.Arguments = '\"%VBS_PATH%\"'; $SC.WindowStyle = 7; $SC.Save(); Write-Host 'Startup shortcut created'"
 
 :: Start now (hidden)
 powershell -WindowStyle Hidden -Command "Start-Process -FilePath '%INSTALL_DIR%\hermes-runtime.exe' -WindowStyle Hidden"

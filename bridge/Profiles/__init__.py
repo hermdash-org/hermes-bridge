@@ -128,6 +128,9 @@ async def switch_profile(request: Request):
         # Pre-warm DB connection for the new profile
         get_session_db(profile_name)
 
+        # NOTE: cron.jobs paths are already patched by set_active_profile()
+        # in agent_pool.py — no need to duplicate here.
+
         home = get_profile_home(profile_name)
 
         return JSONResponse({

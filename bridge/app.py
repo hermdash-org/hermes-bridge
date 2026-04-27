@@ -178,6 +178,7 @@ def create_app() -> FastAPI:
     from .Files import router as files_router
     from .Cron import router as cron_router
     from .Voice import router as voice_router
+    from .Env import router as env_router
 
     app.include_router(chat_router)
     app.include_router(profiles_router)
@@ -190,6 +191,7 @@ def create_app() -> FastAPI:
     app.include_router(files_router)
     app.include_router(cron_router)
     app.include_router(voice_router)
+    app.include_router(env_router)
 
     # Sync active profile from hermes config
     try:
