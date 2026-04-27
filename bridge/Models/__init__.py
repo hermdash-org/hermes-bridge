@@ -137,18 +137,14 @@ async def list_models():
         # OpenRouter down — fall back to direct providers only
         pass
 
-    # 2. Check which direct providers have API keys set
+    # 2. Add direct provider models (ALWAYS show them - API key check happens at runtime)
     all_models = list(openrouter_models)
     for provider_id, model_list in _DIRECT_PROVIDER_MODELS.items():
-        # Check if the provider has an API key set
-        env_vars = _get_provider_env_var_names(provider_id)
-        has_key = any(os.environ.get(ev) for ev in env_vars)
-        if has_key:
-            for m in model_list:
-                # Prefix with provider ID so model selector can identify source
-                m_copy = dict(m)
-                m_copy["_provider"] = provider_id
-                all_models.append(m_copy)
+        for m in model_list:
+            # Prefix with provider ID so model selector can identify source
+            m_copy = dict(m)
+            m_copy["_provider"] = provider_id
+            all_models.append(m_copy)
 
     # 3. Sort: free first, then by name
     all_models.sort(key=lambda x: (not x["is_free"], x["name"].lower()))
