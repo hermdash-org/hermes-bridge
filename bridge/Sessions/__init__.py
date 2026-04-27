@@ -113,13 +113,38 @@ async def delete_session(session_id: str):
                 status_code=404,
             )
 
-        # Delete messages first, then session
+        # Delete all related records to avoid FOREIGN KEY constraint failures:
+        # 1. Messages from child sessions (subagent sessions referencing this one)
+        # 2. Child sessions themselves
+        # 3. Messages from this session
+        # 4. The session itself
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
         try:
             conn = db._conn
             with db._lock:
+                # Find child sessions (subagent sessions with parent_session_id = this session)
+                child_ids = [
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT id FROM sessions WHERE parent_session_id = ?", (session_id,)
+                    ).fetchall()
+                ]
+
+                # Delete messages from child sessions
+                for child_id in child_ids:
+                    conn.execute("DELETE FROM messages WHERE session_id = ?", (child_id,))
+
+                # Delete child sessions
+                if child_ids:
+                    conn.execute(
+                        f"DELETE FROM sessions WHERE parent_session_id = ?", (session_id,)
+                    )
+
+                # Delete messages from this session
                 conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+
+                # Delete the session itself
                 conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
                 conn.commit()
         finally:

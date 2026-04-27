@@ -171,12 +171,33 @@ def set_active_profile(name: str) -> None:
     except ImportError:
         pass
 
-    # Load profile-specific .env (fall back to root .env)
-    env_path = new_home / ".env"
-    if env_path.exists():
-        load_dotenv(str(env_path), override=True)
-    elif (_hermes_root / ".env").exists():
-        load_dotenv(str(_hermes_root / ".env"), override=True)
+    # Patch cron.scheduler's frozen _hermes_home so run_job() reads
+    # config.yaml and .env from the correct profile directory.
+    try:
+        import cron.scheduler as _cs
+        _cs._hermes_home = new_home
+        _cs._LOCK_DIR = new_home / "cron"
+        _cs._LOCK_FILE = _cs._LOCK_DIR / ".tick.lock"
+    except ImportError:
+        pass
+
+    # Patch hermes_state.DEFAULT_DB_PATH so SessionDB() with no args
+    # creates/opens the ACTIVE profile's state.db — not the root one.
+    # This is the root cause of cron sessions landing in default.
+    try:
+        import hermes_state as _hs
+        _hs.DEFAULT_DB_PATH = new_home / "state.db"
+    except ImportError:
+        pass
+
+    # Load root .env first (global API keys), then overlay profile-specific .env.
+    # This ensures profiles inherit ALL keys from default and can override specific ones.
+    root_env = _hermes_root / ".env"
+    if root_env.exists():
+        load_dotenv(str(root_env), override=True)
+    profile_env = new_home / ".env"
+    if profile_env.exists() and new_home != _hermes_root:
+        load_dotenv(str(profile_env), override=True)
 
     # Clear agent cache so agents pick up new profile config
     if old_profile != name:

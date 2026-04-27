@@ -3,6 +3,7 @@ Voice package — speech-to-text via Groq Whisper API.
 
 Endpoints:
   POST /voice/transcribe — upload audio, get transcribed text back.
+  GET  /voice/status     — check if Groq API key is configured.
 
 Calls Groq's Whisper API directly for fast transcription (~1-2s).
 Uses GROQ_API_KEY from ~/.hermes/.env (loaded by env_setup at bridge boot).
@@ -29,6 +30,33 @@ def _get_groq_key() -> str:
         return GROQ_API_KEY
     GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
     return GROQ_API_KEY
+
+
+@router.get("/voice/status")
+async def voice_status():
+    """Check if Groq API key is configured.
+    
+    Returns connection status and key preview for UI display.
+    """
+    api_key = _get_groq_key()
+    
+    if not api_key:
+        return JSONResponse({
+            "connected": False,
+            "has_key": False,
+            "key_preview": None,
+            "provider": "groq",
+        })
+    
+    # Show last 4 characters of key
+    key_preview = f"•••{api_key[-4:]}" if len(api_key) > 4 else "••••"
+    
+    return JSONResponse({
+        "connected": True,
+        "has_key": True,
+        "key_preview": key_preview,
+        "provider": "groq",
+    })
 
 
 @router.post("/voice/transcribe")

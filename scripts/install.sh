@@ -14,7 +14,7 @@ set -e
 
 IMAGE="devopsvaults/hermes-dashboard:latest"
 CONTAINER="hermes-dashboard"
-PORT=8420
+PORT=8521
 
 echo "════════════════════════════════════════════════"
 echo "  Hermes Dashboard — Installer"
