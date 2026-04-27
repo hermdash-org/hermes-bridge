@@ -252,7 +252,7 @@ async def trigger_job_immediately(job_id: str):
 
 @router.get("/inbox")
 async def get_inbox(limit: int = 50, offset: int = 0):
-    """Get all inbox entries from cron runs."""
+    """Get all inbox entries from cron runs for the active profile."""
     try:
         session_db = get_session_db()
 

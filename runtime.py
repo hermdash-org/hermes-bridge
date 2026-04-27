@@ -277,14 +277,23 @@ if __name__ == "__main__":
         # Bootstrap ~/.hermes/ for fresh users (before anything imports hermes_constants)
         _bootstrap_hermes_home()
 
-        # Check for updates on startup
+        # STABILITY FIX #1: Start update check in background (non-blocking)
+        # Previously: check_and_update() blocked startup for 0-10 seconds waiting for network
+        # Now: Bridge starts immediately, updates happen in background
+        # This prevents "Install Again" screen when bridge takes >4s to start
+        import threading
         from auto_update import check_and_update
-        check_and_update()
+        threading.Thread(
+            target=check_and_update, 
+            daemon=True, 
+            name="updater-startup"
+        ).start()
+        logger.info("Update check started in background (non-blocking)")
 
         # Find an available port (handles port conflicts gracefully)
         port = _find_available_port(DEFAULT_PORT)
 
-        # Start the bridge server
+        # Start the bridge server IMMEDIATELY (no blocking on network calls)
         from bridge.server import start_bridge
         logger.info(f"Starting bridge on 127.0.0.1:{port}")
         start_bridge(host="127.0.0.1", port=port)
