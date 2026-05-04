@@ -155,13 +155,21 @@ async def create_profile(request: Request):
         "clone_all": false   (optional — full copy)
     }
     """
+    import logging
+    logger = logging.getLogger("bridge.profiles")
+    
     try:
+        logger.info("=== PROFILE CREATE START ===")
         body = await request.json()
+        logger.info(f"Request body parsed: {body}")
+        
         name = body.get("name", "").strip()
         clone = body.get("clone", False)
         clone_all = body.get("clone_all", False)
+        logger.info(f"Profile name: {name}, clone: {clone}, clone_all: {clone_all}")
 
         if not name:
+            logger.warning("Profile name missing")
             return JSONResponse(
                 {"success": False, "error": "name is required"},
                 status_code=400,
@@ -175,33 +183,51 @@ async def create_profile(request: Request):
 
         try:
             validate_profile_name(name)
+            logger.info(f"Profile name validated: {name}")
         except ValueError as e:
+            logger.warning(f"Profile name validation failed: {e}")
             return JSONResponse(
                 {"success": False, "error": str(e)},
                 status_code=400,
             )
 
         # Suppress print() from hermes_cli in headless mode
+        logger.info("Suppressing stdout/stderr for profile creation")
         old_out, old_err = sys.stdout, sys.stderr
         sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
         try:
+            logger.info("Calling _create()...")
             profile_dir = _create(
                 name=name,
                 clone_config=clone,
                 clone_all=clone_all,
             )
-            seed_profile_skills(profile_dir, quiet=True)
+            logger.info(f"Profile created at: {profile_dir}")
+            # DISABLED: seed_profile_skills() crashes the runtime (subprocess issue)
+            # Skills will be synced on first use instead
+            # seed_profile_skills(profile_dir, quiet=True)
         finally:
             sys.stdout, sys.stderr = old_out, old_err
+            logger.info("Restored stdout/stderr")
 
-        return JSONResponse({
+        logger.info("Building response dict...")
+        response_data = {
             "success": True,
             "name": name,
             "path": str(profile_dir),
-        })
+        }
+        logger.info(f"Response data: {response_data}")
+        
+        logger.info("Creating JSONResponse...")
+        response = JSONResponse(response_data)
+        logger.info("=== PROFILE CREATE SUCCESS - RETURNING RESPONSE ===")
+        return response
+        
     except FileExistsError as e:
+        logger.error(f"Profile already exists: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=409)
     except Exception as e:
+        logger.error(f"Profile creation failed: {e}", exc_info=True)
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
