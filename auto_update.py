@@ -378,11 +378,33 @@ def _download_and_apply(update_info: dict) -> bool:
             os.replace(tmp_path, binary_path)
 
         logger.info(f"Updated binary on disk to v{update_info['version']}")
-        logger.info("Update will take effect on next restart (NOT restarting now)")
-
+        
         # Mark binary as downloaded and ready to apply
         _update_downloaded = True
         _download_failures = 0  # Reset failure counter on success
+
+        # ── AUTO-RESTART AFTER UPDATE ──────────────────────────────────────
+        # PROBLEM: On VPS deployments, users don't know how to manually restart
+        # the runtime. Binary downloads successfully but sits unused until manual
+        # restart (systemctl restart or laptop reboot). Non-technical users get
+        # stuck on old versions forever.
+        #
+        # SOLUTION: Auto-restart 30 seconds after download completes.
+        # - 30s grace period lets active HTTP requests finish cleanly
+        # - systemd brings service back up in 2-3 seconds (Restart=always)
+        # - Browser auto-reconnects via connectionStore polling
+        # - Sessions/profiles/data persist across restart
+        #
+        # TRADE-OFF: May interrupt long-running tasks (cron jobs, agent chats)
+        # but this is better than staying on outdated/buggy versions forever.
+        # Most updates happen when system is idle (background check every 5min).
+        #
+        # RESTART MECHANISM:
+        # 1. Linux VPS: systemctl --user restart (preserves systemd management)
+        # 2. Fallback: os.execv (replaces process in-place, works everywhere)
+        # ───────────────────────────────────────────────────────────────────
+        logger.info("Scheduling automatic restart in 30 seconds...")
+        threading.Timer(30.0, _restart_service).start()
 
         return True
 
