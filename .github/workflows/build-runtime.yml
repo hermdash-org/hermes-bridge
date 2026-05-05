@@ -194,6 +194,7 @@ jobs:
 
       - name: Download binaries from R2 if artifacts unavailable
         if: startsWith(github.ref, 'refs/tags/')  # Only for releases where R2 upload happened
+        continue-on-error: true  # Don't fail if R2 files not ready yet
         shell: bash
         run: |
           # Check if artifacts were downloaded successfully
@@ -202,6 +203,10 @@ jobs:
             
             # Download binaries from R2
             mkdir -p artifacts/hermes-runtime-{linux,mac,windows.exe}
+            
+            # Wait a bit for R2 uploads to complete
+            echo "[INFO] Waiting 30s for R2 uploads to complete..."
+            sleep 30
             
             python3 << 'PYEOF'
           import boto3
