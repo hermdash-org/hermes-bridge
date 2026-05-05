@@ -185,8 +185,58 @@ jobs:
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true  # May fail due to storage quota
         with:
           path: artifacts/
+
+      - name: Install upload dependencies
+        run: pip install boto3
+
+      - name: Download binaries from R2 if artifacts unavailable
+        if: startsWith(github.ref, 'refs/tags/')  # Only for releases where R2 upload happened
+        shell: bash
+        run: |
+          # Check if artifacts were downloaded successfully
+          if [ ! -f "artifacts/hermes-runtime-linux/hermes-runtime" ]; then
+            echo "[INFO] Artifacts not available from GitHub. Downloading from R2..."
+            
+            # Download binaries from R2
+            mkdir -p artifacts/hermes-runtime-{linux,mac,windows.exe}
+            
+            python3 << 'PYEOF'
+          import boto3
+          import os
+          
+          s3 = boto3.client(
+              's3',
+              endpoint_url=f"https://{os.environ['CF_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+              aws_access_key_id=os.environ['R2_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['R2_SECRET_ACCESS_KEY'],
+              region_name='auto'
+          )
+          
+          # Download each platform binary
+          downloads = [
+              ('linux', 'artifacts/hermes-runtime-linux/hermes-runtime'),
+              ('mac', 'artifacts/hermes-runtime-mac/hermes-runtime'),
+              ('windows.exe', 'artifacts/hermes-runtime-windows.exe/hermes-runtime.exe'),
+          ]
+          
+          for platform, local_path in downloads:
+              try:
+                  s3.download_file('hermes-runtime', platform, local_path)
+                  print(f"[OK] Downloaded {platform}")
+              except Exception as e:
+                  print(f"[ERROR] Failed to download {platform}: {e}")
+                  raise
+          PYEOF
+          else
+            echo "[INFO] Using artifacts from GitHub Actions"
+          fi
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
       - name: Generate version.json with checksums
         shell: bash
@@ -212,9 +262,6 @@ jobs:
 
           echo "[OK] version.json:"
           cat version.json
-
-      - name: Install upload dependencies
-        run: pip install boto3
 
       - name: Upload version.json to R2
         env:
