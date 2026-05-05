@@ -155,6 +155,7 @@ jobs:
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
+        continue-on-error: true  # Don't block R2 upload if GitHub storage quota is hit
         with:
           name: hermes-runtime-${{ matrix.name }}
           path: dist/${{ matrix.output }}
