@@ -192,22 +192,20 @@ jobs:
       - name: Install upload dependencies
         run: pip install boto3
 
-      - name: Download binaries from R2 if artifacts unavailable
+      - name: Download binaries from R2
         if: startsWith(github.ref, 'refs/tags/')  # Only for releases where R2 upload happened
         shell: bash
         run: |
-          # Check if artifacts were downloaded successfully
-          if [ ! -f "artifacts/hermes-runtime-linux/hermes-runtime" ]; then
-            echo "[INFO] Artifacts not available from GitHub. Downloading from R2..."
-            
-            # Download binaries from R2
-            mkdir -p artifacts/hermes-runtime-{linux,mac,windows.exe}
-            
-            # Wait for R2 uploads to complete (build jobs run in parallel)
-            echo "[INFO] Waiting 60s for R2 uploads to complete..."
-            sleep 60
-            
-            python3 << 'PYEOF'
+          echo "[INFO] Downloading binaries from R2..."
+          
+          # Create artifact directories
+          mkdir -p artifacts/hermes-runtime-{linux,mac,windows.exe}
+          
+          # Wait for R2 uploads to complete (build jobs run in parallel)
+          echo "[INFO] Waiting 90s for all build jobs to upload to R2..."
+          sleep 90
+          
+          python3 << 'PYEOF'
           import boto3
           import os
           import time
@@ -232,9 +230,9 @@ jobs:
               for attempt in range(max_retries):
                   try:
                       # Check if file exists in R2 first
-                      s3.head_object(Bucket='hermes-runtime', Key=platform)
+                      s3.head_object(Bucket='hermes-downloads', Key=platform)
                       # File exists, download it
-                      s3.download_file('hermes-runtime', platform, local_path)
+                      s3.download_file('hermes-downloads', platform, local_path)
                       print(f"[OK] Downloaded {platform}")
                       break
                   except s3.exceptions.ClientError as e:
@@ -252,9 +250,6 @@ jobs:
                       print(f"[ERROR] Failed to download {platform}: {e}")
                       raise
           PYEOF
-          else
-            echo "[INFO] Using artifacts from GitHub Actions"
-          fi
         env:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
