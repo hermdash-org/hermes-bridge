@@ -194,7 +194,6 @@ jobs:
 
       - name: Download binaries from R2 if artifacts unavailable
         if: startsWith(github.ref, 'refs/tags/')  # Only for releases where R2 upload happened
-        continue-on-error: true  # Don't fail if R2 files not ready yet
         shell: bash
         run: |
           # Check if artifacts were downloaded successfully
@@ -204,13 +203,14 @@ jobs:
             # Download binaries from R2
             mkdir -p artifacts/hermes-runtime-{linux,mac,windows.exe}
             
-            # Wait a bit for R2 uploads to complete
-            echo "[INFO] Waiting 30s for R2 uploads to complete..."
-            sleep 30
+            # Wait for R2 uploads to complete (build jobs run in parallel)
+            echo "[INFO] Waiting 60s for R2 uploads to complete..."
+            sleep 60
             
             python3 << 'PYEOF'
           import boto3
           import os
+          import time
           
           s3 = boto3.client(
               's3',
@@ -220,7 +220,7 @@ jobs:
               region_name='auto'
           )
           
-          # Download each platform binary
+          # Download each platform binary with retry logic
           downloads = [
               ('linux', 'artifacts/hermes-runtime-linux/hermes-runtime'),
               ('mac', 'artifacts/hermes-runtime-mac/hermes-runtime'),
@@ -228,12 +228,29 @@ jobs:
           ]
           
           for platform, local_path in downloads:
-              try:
-                  s3.download_file('hermes-runtime', platform, local_path)
-                  print(f"[OK] Downloaded {platform}")
-              except Exception as e:
-                  print(f"[ERROR] Failed to download {platform}: {e}")
-                  raise
+              max_retries = 3
+              for attempt in range(max_retries):
+                  try:
+                      # Check if file exists in R2 first
+                      s3.head_object(Bucket='hermes-runtime', Key=platform)
+                      # File exists, download it
+                      s3.download_file('hermes-runtime', platform, local_path)
+                      print(f"[OK] Downloaded {platform}")
+                      break
+                  except s3.exceptions.ClientError as e:
+                      if e.response['Error']['Code'] == '404':
+                          if attempt < max_retries - 1:
+                              print(f"[RETRY] {platform} not found yet, waiting 30s... (attempt {attempt + 1}/{max_retries})")
+                              time.sleep(30)
+                          else:
+                              print(f"[ERROR] {platform} not found in R2 after {max_retries} attempts")
+                              raise
+                      else:
+                          print(f"[ERROR] Failed to download {platform}: {e}")
+                          raise
+                  except Exception as e:
+                      print(f"[ERROR] Failed to download {platform}: {e}")
+                      raise
           PYEOF
           else
             echo "[INFO] Using artifacts from GitHub Actions"
