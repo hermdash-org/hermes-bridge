@@ -27,7 +27,13 @@ router = APIRouter(prefix="/inbox", tags=["inbox"])
 
 
 @router.get("/")
-async def list_inbox_items(limit: int = 50, offset: int = 0):
+async def list_inbox_items(
+    limit: int = 50, 
+    offset: int = 0,
+    job_id: str = None,
+    status: str = None,
+    search: str = None
+):
     """List all automation results for the active profile.
     
     Returns aggregated data from:
@@ -86,11 +92,12 @@ async def list_inbox_items(limit: int = 50, offset: int = 0):
                     preview = ""
                 
                 # Convert timestamp to ISO format for frontend
-                # Format: 2026-04-27_19-02-35 → 2026-04-27T19:02:35Z (UTC)
+                # Format: 2026-04-27_19-02-35 → 2026-04-27T19:02:35
+                # No timezone marker - browser will interpret as local time
                 try:
                     from datetime import datetime
                     dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
-                    iso_timestamp = dt.isoformat() + "Z"  # Assume UTC
+                    iso_timestamp = dt.isoformat()  # No "Z" - local time
                 except Exception:
                     iso_timestamp = timestamp
                 
@@ -121,8 +128,28 @@ async def list_inbox_items(limit: int = 50, offset: int = 0):
                     item["reasoning_tokens"] = session.get("reasoning_tokens", 0)
                     item["tool_call_count"] = session.get("tool_call_count", 0)
                     item["model"] = session.get("model")
+                    
+                    # Calculate duration
+                    started_at = session.get("started_at")
+                    ended_at = session.get("ended_at")
+                    if started_at and ended_at:
+                        item["duration_seconds"] = round(ended_at - started_at, 2)
                 
                 items.append(item)
+        
+        # Apply filters
+        if job_id:
+            items = [item for item in items if item["job_id"] == job_id]
+        
+        if status:
+            items = [item for item in items if item["status"] == status]
+        
+        if search:
+            search_lower = search.lower()
+            items = [
+                item for item in items 
+                if search_lower in item["preview"].lower() or search_lower in item["job_name"].lower()
+            ]
         
         # Sort by timestamp descending
         items.sort(key=lambda x: x["timestamp"], reverse=True)
@@ -186,11 +213,15 @@ async def get_inbox_item(item_id: str):
         
         content = output_path.read_text(encoding='utf-8')
         
+        # Extract output from session messages (last assistant message)
+        # This is the actual agent response, not parsed from markdown
+        output_only = None
+        
         # Convert timestamp to ISO format
         try:
             from datetime import datetime
             dt = datetime.strptime(timestamp, "%Y-%m-%d_%H-%M-%S")
-            iso_timestamp = dt.isoformat() + "Z"
+            iso_timestamp = dt.isoformat()  # No "Z" - local time
         except Exception:
             iso_timestamp = timestamp
         
@@ -213,7 +244,8 @@ async def get_inbox_item(item_id: str):
             "job_name": job.get("name"),
             "timestamp": timestamp,  # Keep original
             "created_at": iso_timestamp,  # ISO format for frontend
-            "content": content,
+            "content": content,  # Full markdown with metadata
+            "output": output_only,  # Just the agent's response
             "status": job.get("last_status"),
             "error": job.get("last_error"),
             "delivery_error": job.get("last_delivery_error"),
@@ -255,12 +287,28 @@ async def get_inbox_item(item_id: str):
                 "api_call_count": session.get("api_call_count", 0),
             }
             
-            # Extract tool names from messages
+            # Extract tool names and last assistant message from messages
             tools_used = []
             for msg in messages:
                 if msg.get("tool_name"):
                     tools_used.append(msg["tool_name"])
+                # Get the last assistant message as the output
+                if msg.get("role") == "assistant" and msg.get("content"):
+                    output_only = msg.get("content")
+            
             result["tools_used"] = list(set(tools_used))
+        
+        # Fallback: if no session or no assistant message, extract from markdown
+        if not output_only and "## Response" in content:
+            parts = content.split("## Response", 1)
+            if len(parts) == 2:
+                output_only = parts[1].strip()
+        
+        # Final fallback: use full content
+        if not output_only:
+            output_only = content
+        
+        result["output"] = output_only
         
         return JSONResponse({
             "success": True,
@@ -386,6 +434,42 @@ async def get_unread_count_endpoint():
             "success": True,
             "unread_count": unread,
             "total_count": len(all_item_ids),
+        })
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+@router.delete("/{item_id}")
+async def delete_inbox_item(item_id: str):
+    """Delete an inbox item (output file only, keeps job config)."""
+    try:
+        # Parse item_id: {job_id}_{timestamp}
+        parts = item_id.split('_')
+        if len(parts) < 3:
+            return JSONResponse(
+                {"success": False, "error": "Invalid item ID format"},
+                status_code=400
+            )
+        
+        timestamp = '_'.join(parts[-2:])
+        job_id = '_'.join(parts[:-2])
+        
+        # Delete output file
+        output_path = _cron_jobs_mod.OUTPUT_DIR / job_id / f"{timestamp}.md"
+        if not output_path.exists():
+            return JSONResponse(
+                {"success": False, "error": "Output file not found"},
+                status_code=404
+            )
+        
+        output_path.unlink()
+        
+        # Remove from read tracking
+        mark_as_unread(item_id)  # Clean up read state
+        
+        return JSONResponse({
+            "success": True,
+            "deleted": item_id,
         })
     except Exception as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
