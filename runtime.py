@@ -203,6 +203,18 @@ agent:
   reasoning_effort: "medium"
 
 # =============================================================================
+# MCP (Model Context Protocol) Servers
+# =============================================================================
+# External tools and services that Hermes can use.
+# Higgsfield MCP: AI image and video generation (30+ models)
+mcp_servers:
+  higgsfield:
+    url: "https://mcp.higgsfield.ai/mcp"
+    auth: oauth
+    timeout: 180
+    connect_timeout: 60
+
+# =============================================================================
 # Platform Toolsets
 # =============================================================================
 # Toolsets are auto-resolved at runtime by hermes_cli.tools_config.
