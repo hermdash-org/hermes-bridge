@@ -186,6 +186,10 @@ async def get_inbox_item(item_id: str):
         
         content = output_path.read_text(encoding='utf-8')
         
+        # Extract output from session messages (last assistant message)
+        # This is the actual agent response, not parsed from markdown
+        output_only = None
+        
         # Convert timestamp to ISO format
         try:
             from datetime import datetime
@@ -213,7 +217,8 @@ async def get_inbox_item(item_id: str):
             "job_name": job.get("name"),
             "timestamp": timestamp,  # Keep original
             "created_at": iso_timestamp,  # ISO format for frontend
-            "content": content,
+            "content": content,  # Full markdown with metadata
+            "output": output_only,  # Just the agent's response
             "status": job.get("last_status"),
             "error": job.get("last_error"),
             "delivery_error": job.get("last_delivery_error"),
@@ -255,12 +260,28 @@ async def get_inbox_item(item_id: str):
                 "api_call_count": session.get("api_call_count", 0),
             }
             
-            # Extract tool names from messages
+            # Extract tool names and last assistant message from messages
             tools_used = []
             for msg in messages:
                 if msg.get("tool_name"):
                     tools_used.append(msg["tool_name"])
+                # Get the last assistant message as the output
+                if msg.get("role") == "assistant" and msg.get("content"):
+                    output_only = msg.get("content")
+            
             result["tools_used"] = list(set(tools_used))
+        
+        # Fallback: if no session or no assistant message, extract from markdown
+        if not output_only and "## Response" in content:
+            parts = content.split("## Response", 1)
+            if len(parts) == 2:
+                output_only = parts[1].strip()
+        
+        # Final fallback: use full content
+        if not output_only:
+            output_only = content
+        
+        result["output"] = output_only
         
         return JSONResponse({
             "success": True,
