@@ -180,6 +180,7 @@ def create_app() -> FastAPI:
     from .Voice import router as voice_router
     from .Env import router as env_router
     from .Inbox import router as inbox_router
+    from .Higgsfield import router as higgsfield_router
 
     app.include_router(chat_router)
     app.include_router(profiles_router)
@@ -194,6 +195,7 @@ def create_app() -> FastAPI:
     app.include_router(voice_router)
     app.include_router(env_router)
     app.include_router(inbox_router)
+    app.include_router(higgsfield_router)
 
     # Sync active profile from hermes config
     try:
