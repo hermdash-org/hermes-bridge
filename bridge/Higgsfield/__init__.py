@@ -240,7 +240,7 @@ async def connect(request: Request):
                 _oauth_states.pop(old_state, None)
         
         # Build authorization URL
-        auth_endpoint = "https://accounts.higgsfield.ai/oauth-consent"
+        auth_endpoint = "https://mcp.higgsfield.ai/oauth2/authorize"
         
         params = {
             "response_type": "code",
