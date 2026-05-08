@@ -20,26 +20,33 @@ def _get_hermes_home() -> Path:
 
 
 def _get_token_path() -> Path:
-    """Get path to OAuth tokens file."""
+    """Get path to CLI credentials file."""
     hermes_home = _get_hermes_home()
     
-    # Try profile-specific tokens first
-    profiles_dir = hermes_home / "profiles"
-    if profiles_dir.exists():
-        for profile_dir in profiles_dir.iterdir():
-            if profile_dir.is_dir():
-                token_path = profile_dir / "mcp-tokens" / "higgsfield.json"
-                if token_path.exists():
-                    logger.info(f"Found tokens in profile: {profile_dir.name}")
-                    return token_path
+    # Try our custom location first
+    custom_path = hermes_home / "higgsfield" / "credentials.json"
+    if custom_path.exists():
+        return custom_path
     
-    # Fall back to global tokens
-    return hermes_home / "mcp-tokens" / "higgsfield.json"
+    # Fall back to CLI's default location
+    default_path = Path.home() / ".config" / "higgsfield" / "credentials.json"
+    if default_path.exists():
+        logger.info(f"Using CLI default credentials at {default_path}")
+        return default_path
+    
+    # Return custom path as default (for creation)
+    return custom_path
 
 
 def get_credentials() -> Optional[Tuple[str, str]]:
     """
-    Get Higgsfield API credentials from OAuth tokens.
+    Get Higgsfield API credentials from CLI credentials file.
+    
+    The CLI saves credentials in JSON format:
+    {
+        "api_key": "...",
+        "api_secret": "..."
+    }
     
     Returns:
         Tuple of (api_key, api_secret) or None if not authenticated
@@ -47,36 +54,21 @@ def get_credentials() -> Optional[Tuple[str, str]]:
     token_path = _get_token_path()
     
     if not token_path.exists():
-        logger.warning(f"No Higgsfield tokens found at {token_path}")
+        logger.warning(f"No Higgsfield credentials found at {token_path}")
         return None
     
     try:
         with open(token_path, "r") as f:
-            tokens = json.load(f)
+            creds = json.load(f)
         
-        access_token = tokens.get("access_token")
-        if not access_token:
-            logger.error("No access_token in token file")
+        api_key = creds.get("api_key")
+        api_secret = creds.get("api_secret")
+        
+        if not api_key or not api_secret:
+            logger.error("Missing api_key or api_secret in credentials file")
             return None
         
-        # The access token format is typically "key:secret" or just the key
-        # We need to check the actual format from Higgsfield OAuth
-        # For now, we'll use the access_token as the key
-        # and check if there's a separate secret
-        
-        # Option 1: Token is "key:secret" format
-        if ":" in access_token:
-            parts = access_token.split(":", 1)
-            return (parts[0], parts[1])
-        
-        # Option 2: Separate key and secret fields
-        api_secret = tokens.get("api_secret") or tokens.get("refresh_token")
-        if api_secret:
-            return (access_token, api_secret)
-        
-        # Option 3: Just use the access token as both (some APIs work this way)
-        logger.info("Using access_token as API key (no separate secret found)")
-        return (access_token, access_token)
+        return (api_key, api_secret)
         
     except Exception as e:
         logger.error(f"Failed to read credentials: {e}", exc_info=True)
@@ -105,5 +97,5 @@ def set_env_credentials() -> bool:
     os.environ["HF_API_KEY"] = api_key
     os.environ["HF_API_SECRET"] = api_secret
     
-    logger.info("✓ Higgsfield API credentials loaded from OAuth tokens")
+    logger.info("✓ Higgsfield API credentials loaded from CLI credentials file")
     return True
