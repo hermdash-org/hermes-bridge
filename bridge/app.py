@@ -182,6 +182,7 @@ def create_app() -> FastAPI:
     from .Inbox import router as inbox_router
     from .Higgsfield import router as higgsfield_router
     from .Higgsfield.cli import router as higgsfield_cli_router
+    from .HiggsfieldAPI.routes import router as higgsfield_api_router
 
     app.include_router(chat_router)
     app.include_router(profiles_router)
@@ -198,6 +199,7 @@ def create_app() -> FastAPI:
     app.include_router(inbox_router)
     app.include_router(higgsfield_router)
     app.include_router(higgsfield_cli_router)
+    app.include_router(higgsfield_api_router)
 
     # Sync active profile from hermes config
     try:
