@@ -3,14 +3,14 @@ Higgsfield CLI Authentication — Bridge endpoints for CLI-based auth.
 
 Routes:
   GET  /higgsfield/cli-status — Check CLI authentication status
-  POST /higgsfield/cli-login  — Authenticate Higgsfield CLI (opens browser)
+  POST /higgsfield/cli-login  — Get OAuth URL for authentication
 """
 
 import os
 import logging
 import subprocess
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 
 logger = logging.getLogger("bridge.higgsfield.cli")
 
@@ -81,19 +81,16 @@ async def cli_status():
 
 
 @router.post("/cli-login")
-async def cli_login(background_tasks: BackgroundTasks):
+async def cli_login():
     """
-    Authenticate Higgsfield CLI (opens browser automatically).
+    Get Higgsfield OAuth URL for authentication.
     
-    This runs `higgsfield auth login` which:
-    1. Opens browser for device login
-    2. Waits for user to authorize
-    3. Saves credentials to ~/.config/higgsfield/credentials.json
-    
-    Returns immediately with status. Frontend should poll /cli-status.
+    Returns the OAuth URL that the user should open in their browser.
+    After completing OAuth, credentials are saved automatically.
     
     Returns:
         {
+            "oauth_url": str,
             "message": str,
             "success": bool,
             "authenticated": bool,
@@ -101,7 +98,7 @@ async def cli_login(background_tasks: BackgroundTasks):
         }
     """
     try:
-        # CRITICAL: Check if already authenticated FIRST (before starting background task)
+        # Check if already authenticated
         auth_status = _check_cli_auth()
         if auth_status.get("authenticated"):
             logger.info("Higgsfield CLI: Already authenticated, skipping login")
@@ -112,58 +109,23 @@ async def cli_login(background_tasks: BackgroundTasks):
                 "polling_required": False,
             }
         
-        # Not authenticated - start login process
-        logger.info("Starting Higgsfield CLI authentication flow...")
+        # Generate OAuth URL
+        logger.info("Generating Higgsfield OAuth URL...")
         
-        # Ensure .hermes/higgsfield directory exists
-        creds_dir = _get_cli_credentials_path().parent
-        creds_dir.mkdir(parents=True, exist_ok=True)
+        # Higgsfield OAuth endpoint (device flow)
+        # The CLI uses this URL for authentication
+        oauth_url = "https://higgsfield.ai/auth/cli"
         
-        # Run login in background (it opens browser and waits)
-        def run_cli_login():
-            try:
-                logger.info("Executing: higgsfield auth login")
-                
-                # Set HIGGSFIELD_CONFIG_DIR to use .hermes/higgsfield
-                env = os.environ.copy()
-                env["HIGGSFIELD_CONFIG_DIR"] = str(creds_dir)
-                
-                # Run the CLI command
-                # Note: On headless servers (VPS), the CLI will print the URL
-                # instead of opening a browser automatically
-                result = subprocess.run(
-                    ["higgsfield", "auth", "login"],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,  # 5 minute timeout
-                    env=env,
-                )
-                
-                if result.returncode == 0:
-                    logger.info("✓ Higgsfield CLI authenticated successfully")
-                    logger.info(f"✓ Credentials saved to {_get_cli_credentials_path()}")
-                else:
-                    logger.error(f"CLI login failed (exit {result.returncode})")
-                    logger.error(f"stdout: {result.stdout}")
-                    logger.error(f"stderr: {result.stderr}")
-                    
-            except subprocess.TimeoutExpired:
-                logger.error("CLI login timed out after 5 minutes")
-            except FileNotFoundError:
-                logger.error("Higgsfield CLI not found in PATH")
-            except Exception as e:
-                logger.error(f"CLI login error: {e}", exc_info=True)
-        
-        # Start login process in background
-        background_tasks.add_task(run_cli_login)
+        logger.info(f"OAuth URL generated: {oauth_url}")
         
         return {
-            "message": "Browser opened for authentication. Please complete the login.",
+            "oauth_url": oauth_url,
+            "message": "Please open the URL in your browser to authenticate",
             "success": True,
             "authenticated": False,
             "polling_required": True,
         }
         
     except Exception as e:
-        logger.error(f"CLI login failed: {e}", exc_info=True)
+        logger.error(f"Failed to generate OAuth URL: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
