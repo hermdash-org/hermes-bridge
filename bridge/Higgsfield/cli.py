@@ -112,43 +112,26 @@ async def cli_login(background_tasks: BackgroundTasks):
                 "polling_required": False,
             }
         
-        # Not authenticated - start login process
-        logger.info("Starting Higgsfield CLI authentication flow...")
+        # Not authenticated - start login process via SDK
+        logger.info("Starting Higgsfield browser authentication flow...")
         
-        # Ensure .hermes/higgsfield directory exists
-        creds_dir = _get_cli_credentials_path().parent
-        creds_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Run login in background (it opens browser and waits)
-        def run_cli_login():
+        # Run login in background (opens browser and waits)
+        def run_sdk_login():
             try:
-                logger.info("Executing: higgsfield auth login")
+                from ..HiggsfieldAPI.auth import authenticate_higgsfield
                 
-                # Set HIGGSFIELD_CONFIG_DIR to use .hermes/higgsfield
-                env = os.environ.copy()
-                env["HIGGSFIELD_CONFIG_DIR"] = str(creds_dir)
+                logger.info("Opening browser for Higgsfield OAuth...")
+                token = authenticate_higgsfield()
                 
-                result = subprocess.run(
-                    ["higgsfield", "auth", "login"],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,  # 5 minute timeout
-                    env=env,
-                )
-                if result.returncode == 0:
-                    logger.info("✓ Higgsfield CLI authenticated successfully")
-                    logger.info(f"✓ Credentials saved to {_get_cli_credentials_path()}")
+                if token:
+                    logger.info("✓ Higgsfield authenticated successfully")
                 else:
-                    logger.error(f"CLI login failed (exit {result.returncode}): {result.stderr}")
-            except subprocess.TimeoutExpired:
-                logger.error("CLI login timed out after 5 minutes")
-            except FileNotFoundError:
-                logger.error("Higgsfield CLI not found. Please install: curl -fsSL https://raw.githubusercontent.com/higgsfield-ai/cli/main/install.sh | sh")
+                    logger.error("Authentication failed or was cancelled")
             except Exception as e:
-                logger.error(f"CLI login error: {e}", exc_info=True)
+                logger.error(f"Authentication error: {e}", exc_info=True)
         
         # Start login process in background
-        background_tasks.add_task(run_cli_login)
+        background_tasks.add_task(run_sdk_login)
         
         return {
             "message": "Browser opened for authentication. Please complete the login.",

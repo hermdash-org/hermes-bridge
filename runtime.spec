@@ -164,6 +164,20 @@ else:
     print(f"[WARN] Skills directory not found at {skills_path} -- binary will have no bundled skills")
 
 # ═══════════════════════════════════════════════════════════════════════════
+# STEP 4.5: Bundle Higgsfield CLI binary
+# ═══════════════════════════════════════════════════════════════════════════
+# Bundle the Higgsfield CLI binary so users can authenticate via browser
+# without needing to install it separately.
+
+import shutil
+higgsfield_cli = shutil.which('higgsfield')
+if higgsfield_cli:
+    bridge_datas.append((higgsfield_cli, 'bin'))
+    print(f"[OK] Bundling Higgsfield CLI from {higgsfield_cli}")
+else:
+    print(f"[WARN] Higgsfield CLI not found -- users will need to install it manually")
+
+# ═══════════════════════════════════════════════════════════════════════════
 # STEP 5: Hidden imports — standalone modules (AUTO-DETECTED)
 # ═══════════════════════════════════════════════════════════════════════════
 # Some hermes-agent modules are standalone .py files at the repo root
