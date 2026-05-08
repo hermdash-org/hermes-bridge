@@ -70,7 +70,17 @@ jobs:
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
-          curl -fsSL https://raw.githubusercontent.com/higgsfield-ai/cli/main/install.sh | sh
+          # Get latest release tag using authenticated GitHub API to avoid rate limits
+          LATEST_TAG=$(curl -fsSL \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/higgsfield-ai/cli/releases/latest | \
+            grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          
+          echo "Installing Higgsfield CLI version: $LATEST_TAG"
+          
+          # Install with specific tag to avoid unauthenticated API call in install script
+          curl -fsSL https://raw.githubusercontent.com/higgsfield-ai/cli/main/install.sh | sh -s -- --tag="$LATEST_TAG" --prefix="$HOME/.local"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
       
       - name: Install Higgsfield CLI (Windows)
