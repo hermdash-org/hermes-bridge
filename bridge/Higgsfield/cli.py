@@ -17,19 +17,30 @@ logger = logging.getLogger("bridge.higgsfield.cli")
 router = APIRouter(prefix="/higgsfield", tags=["higgsfield-cli"])
 
 
+def _get_hermes_home() -> Path:
+    """Get Hermes home directory."""
+    return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+
+
 def _get_cli_credentials_path() -> Path:
-    """Get path to Higgsfield CLI credentials file."""
-    return Path.home() / ".config" / "higgsfield" / "credentials.json"
+    """Get path to Higgsfield CLI credentials file (inside .hermes)."""
+    return _get_hermes_home() / "higgsfield" / "credentials.json"
 
 
 def _check_cli_auth() -> dict:
     """Check if Higgsfield CLI is authenticated."""
     try:
+        # Set HIGGSFIELD_CONFIG_DIR to use .hermes/higgsfield
+        creds_dir = _get_cli_credentials_path().parent
+        env = os.environ.copy()
+        env["HIGGSFIELD_CONFIG_DIR"] = str(creds_dir)
+        
         result = subprocess.run(
             ["higgsfield", "auth", "token"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
+            env=env,
         )
         if result.returncode == 0 and result.stdout.strip():
             return {
@@ -104,18 +115,29 @@ async def cli_login(background_tasks: BackgroundTasks):
         # Not authenticated - start login process
         logger.info("Starting Higgsfield CLI authentication flow...")
         
+        # Ensure .hermes/higgsfield directory exists
+        creds_dir = _get_cli_credentials_path().parent
+        creds_dir.mkdir(parents=True, exist_ok=True)
+        
         # Run login in background (it opens browser and waits)
         def run_cli_login():
             try:
                 logger.info("Executing: higgsfield auth login")
+                
+                # Set HIGGSFIELD_CONFIG_DIR to use .hermes/higgsfield
+                env = os.environ.copy()
+                env["HIGGSFIELD_CONFIG_DIR"] = str(creds_dir)
+                
                 result = subprocess.run(
                     ["higgsfield", "auth", "login"],
                     capture_output=True,
                     text=True,
-                    timeout=300  # 5 minute timeout
+                    timeout=300,  # 5 minute timeout
+                    env=env,
                 )
                 if result.returncode == 0:
                     logger.info("✓ Higgsfield CLI authenticated successfully")
+                    logger.info(f"✓ Credentials saved to {_get_cli_credentials_path()}")
                 else:
                     logger.error(f"CLI login failed (exit {result.returncode}): {result.stderr}")
             except subprocess.TimeoutExpired:
