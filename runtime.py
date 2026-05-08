@@ -280,6 +280,29 @@ def _bootstrap_hermes_home():
 
 # ─── Main ───────────────────────────────────────────────────────────────
 
+def _setup_higgsfield_wrapper():
+    """
+    Add Higgsfield CLI wrapper to PATH.
+    
+    This allows skills to call 'higgsfield' commands which will use
+    the Python SDK instead of requiring the Go binary to be installed.
+    """
+    # Get the bridge directory (where HiggsfieldAPI module is)
+    if hasattr(sys, '_MEIPASS'):
+        # Running from PyInstaller bundle
+        bridge_dir = Path(sys._MEIPASS) / "bridge" / "HiggsfieldAPI"
+    else:
+        # Running from source
+        bridge_dir = Path(__file__).parent / "bridge" / "HiggsfieldAPI"
+    
+    if bridge_dir.exists():
+        # Add to PATH so skills can call 'higgsfield' command
+        os.environ["PATH"] = f"{bridge_dir}:{os.environ.get('PATH', '')}"
+        logger.info(f"✓ Higgsfield CLI wrapper added to PATH: {bridge_dir}")
+    else:
+        logger.warning(f"Higgsfield CLI wrapper not found at {bridge_dir}")
+
+
 if __name__ == "__main__":
     _setup_logging()
     logger.info(f"Hermes Runtime v{VERSION} starting")
@@ -288,6 +311,9 @@ if __name__ == "__main__":
     try:
         # Bootstrap ~/.hermes/ for fresh users (before anything imports hermes_constants)
         _bootstrap_hermes_home()
+        
+        # Setup Higgsfield CLI wrapper (so skills can use Python SDK)
+        _setup_higgsfield_wrapper()
 
         # STABILITY FIX #1: Start update check in background (non-blocking)
         # Previously: check_and_update() blocked startup for 0-10 seconds waiting for network

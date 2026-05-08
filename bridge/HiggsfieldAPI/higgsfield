@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Higgsfield CLI wrapper - uses Python SDK instead of Go binary
+# This script is called by skills and forwards to the Python wrapper
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Call the Python wrapper
+python3 -m bridge.HiggsfieldAPI.cli_wrapper "$@"
