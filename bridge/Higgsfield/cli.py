@@ -128,6 +128,9 @@ async def cli_login(background_tasks: BackgroundTasks):
                 env = os.environ.copy()
                 env["HIGGSFIELD_CONFIG_DIR"] = str(creds_dir)
                 
+                # Run the CLI command
+                # Note: On headless servers (VPS), the CLI will print the URL
+                # instead of opening a browser automatically
                 result = subprocess.run(
                     ["higgsfield", "auth", "login"],
                     capture_output=True,
@@ -135,15 +138,19 @@ async def cli_login(background_tasks: BackgroundTasks):
                     timeout=300,  # 5 minute timeout
                     env=env,
                 )
+                
                 if result.returncode == 0:
                     logger.info("✓ Higgsfield CLI authenticated successfully")
                     logger.info(f"✓ Credentials saved to {_get_cli_credentials_path()}")
                 else:
-                    logger.error(f"CLI login failed (exit {result.returncode}): {result.stderr}")
+                    logger.error(f"CLI login failed (exit {result.returncode})")
+                    logger.error(f"stdout: {result.stdout}")
+                    logger.error(f"stderr: {result.stderr}")
+                    
             except subprocess.TimeoutExpired:
                 logger.error("CLI login timed out after 5 minutes")
             except FileNotFoundError:
-                logger.error("Higgsfield CLI not found. Please install: curl -fsSL https://raw.githubusercontent.com/higgsfield-ai/cli/main/install.sh | sh")
+                logger.error("Higgsfield CLI not found in PATH")
             except Exception as e:
                 logger.error(f"CLI login error: {e}", exc_info=True)
         

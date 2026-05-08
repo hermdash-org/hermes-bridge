@@ -282,25 +282,39 @@ def _bootstrap_hermes_home():
 
 def _setup_higgsfield_wrapper():
     """
-    Add Higgsfield CLI wrapper to PATH.
+    Add bundled Higgsfield CLI binary to PATH.
     
-    This allows skills to call 'higgsfield' commands which will use
-    the Python SDK instead of requiring the Go binary to be installed.
+    This allows the UI and skills to call 'higgsfield auth login' commands
+    which will open the browser for OAuth authentication.
     """
-    # Get the bridge directory (where HiggsfieldAPI module is)
+    # Get the bin directory (where CLI binary is bundled)
     if hasattr(sys, '_MEIPASS'):
         # Running from PyInstaller bundle
-        bridge_dir = Path(sys._MEIPASS) / "bridge" / "HiggsfieldAPI"
+        bin_dir = Path(sys._MEIPASS) / "bin"
     else:
-        # Running from source
-        bridge_dir = Path(__file__).parent / "bridge" / "HiggsfieldAPI"
+        # Running from source - use system CLI
+        import shutil
+        cli_path = shutil.which('higgsfield')
+        if cli_path:
+            logger.info(f"✓ Using system Higgsfield CLI: {cli_path}")
+            return
+        else:
+            logger.warning("Higgsfield CLI not found in system PATH")
+            return
     
-    if bridge_dir.exists():
-        # Add to PATH so skills can call 'higgsfield' command
-        os.environ["PATH"] = f"{bridge_dir}:{os.environ.get('PATH', '')}"
-        logger.info(f"✓ Higgsfield CLI wrapper added to PATH: {bridge_dir}")
+    if bin_dir.exists():
+        # Add to PATH so CLI commands work
+        os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
+        
+        # Make CLI executable (in case permissions were lost)
+        cli_binary = bin_dir / "higgsfield"
+        if cli_binary.exists():
+            cli_binary.chmod(0o755)
+            logger.info(f"✓ Higgsfield CLI added to PATH: {bin_dir}")
+        else:
+            logger.warning(f"Higgsfield CLI binary not found at {cli_binary}")
     else:
-        logger.warning(f"Higgsfield CLI wrapper not found at {bridge_dir}")
+        logger.warning(f"Higgsfield bin directory not found at {bin_dir}")
 
 
 if __name__ == "__main__":

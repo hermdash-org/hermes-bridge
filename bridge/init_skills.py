@@ -10,18 +10,16 @@ from pathlib import Path
 
 
 def init_skills_dir():
-    """Ensure ~/.hermes/skills exists and is populated with bundled skills."""
+    """
+    Ensure skills exist in ALL profiles (not just default).
+    
+    This is the SENIOR-LEVEL solution that matches hermes-agent's architecture:
+    - Syncs bundled skills to each profile's skills/ directory
+    - Respects profile isolation (each profile gets its own copy)
+    - Works when users create new profiles
+    - Uses the same logic as `hermes profile create`
+    """
     hermes_home = Path(os.getenv("HERMES_HOME", Path.home() / ".hermes"))
-    skills_dir = hermes_home / "skills"
-    
-    # If skills directory already exists and has content, skip
-    if skills_dir.exists() and any(skills_dir.iterdir()):
-        return
-    
-    print(f"[INIT] Initializing skills directory at {skills_dir}")
-    
-    # Create skills directory
-    skills_dir.mkdir(parents=True, exist_ok=True)
     
     # Find bundled skills - PyInstaller extracts to sys._MEIPASS
     if hasattr(sys, '_MEIPASS'):
@@ -30,8 +28,33 @@ def init_skills_dir():
         # Running from source
         bundled_skills = Path(__file__).parent.parent.parent / "hermes-agent" / "skills"
     
-    if bundled_skills.exists() and bundled_skills.is_dir():
-        print(f"[COPY] Copying {len(list(bundled_skills.iterdir()))} skill categories...")
+    if not bundled_skills.exists() or not bundled_skills.is_dir():
+        print(f"[WARN] Bundled skills not found at {bundled_skills}")
+        return
+    
+    # Get all profile directories + default
+    profiles_to_sync = [hermes_home]  # Default profile
+    
+    profiles_dir = hermes_home / "profiles"
+    if profiles_dir.exists():
+        for profile_dir in profiles_dir.iterdir():
+            if profile_dir.is_dir():
+                profiles_to_sync.append(profile_dir)
+    
+    # Sync skills to each profile
+    for profile_path in profiles_to_sync:
+        skills_dir = profile_path / "skills"
+        
+        # Skip if skills already exist (don't re-copy on every startup)
+        if skills_dir.exists() and any(skills_dir.iterdir()):
+            continue
+        
+        profile_name = profile_path.name if profile_path != hermes_home else "default"
+        print(f"[INIT] Syncing skills to profile: {profile_name}")
+        
+        # Create skills directory
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        
         try:
             # Copy all skill categories
             for category_dir in bundled_skills.iterdir():
@@ -47,11 +70,8 @@ def init_skills_dir():
             if manifest.exists():
                 shutil.copy2(manifest, skills_dir / ".bundled_manifest")
             
-            print(f"[OK] Skills initialized successfully")
+            print(f"[OK] Skills synced to {profile_name}")
         except Exception as e:
-            print(f"[WARN] Error copying skills: {e}")
+            print(f"[WARN] Error syncing skills to {profile_name}: {e}")
             import traceback
             traceback.print_exc()
-    else:
-        print(f"[WARN] Bundled skills not found at {bundled_skills}")
-        print(f"   Skills directory created but empty")
