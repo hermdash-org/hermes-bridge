@@ -66,6 +66,21 @@ jobs:
           pip install pyinstaller python-multipart boto3 cython setuptools
           pip install -e ../hermes-agent
       
+      - name: Install Higgsfield CLI (Linux/Mac)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/higgsfield-ai/cli/main/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      
+      - name: Install Higgsfield CLI (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/higgsfield-ai/cli/main/install.ps1" -OutFile install.ps1
+          .\install.ps1
+          echo "$env:LOCALAPPDATA\higgsfield\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      
       - name: Compile bridge with Cython
         shell: bash
         run: |

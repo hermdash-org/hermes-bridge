@@ -156,12 +156,21 @@ for pkg in _engine_packages:
 # At startup, server.py calls skills_sync.py which copies these to
 # ~/.hermes/skills/ if the user doesn't have them yet.
 
+# Bundle skills from hermes-agent (upstream)
 skills_path = str(spec_dir.parent / 'hermes-agent' / 'skills')
 if os.path.exists(skills_path):
     bridge_datas.append((skills_path, 'skills'))
-    print(f"[OK] Bundling skills from {skills_path}")
+    print(f"[OK] Bundling hermes-agent skills from {skills_path}")
 else:
-    print(f"[WARN] Skills directory not found at {skills_path} -- binary will have no bundled skills")
+    print(f"[WARN] hermes-agent skills not found at {skills_path}")
+
+# Bundle Higgsfield skills from hermes repo (our custom skills)
+higgsfield_skills_path = str(spec_dir / 'skills' / 'higgsfield')
+if os.path.exists(higgsfield_skills_path):
+    bridge_datas.append((higgsfield_skills_path, 'skills/higgsfield'))
+    print(f"[OK] Bundling Higgsfield skills from {higgsfield_skills_path}")
+else:
+    print(f"[WARN] Higgsfield skills not found at {higgsfield_skills_path}")
 
 # ═══════════════════════════════════════════════════════════════════════════
 # STEP 4.5: Bundle Higgsfield CLI binary
