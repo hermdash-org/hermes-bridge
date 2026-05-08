@@ -21,7 +21,20 @@ def _get_hermes_home() -> Path:
 
 def _get_token_path() -> Path:
     """Get path to OAuth tokens file."""
-    return _get_hermes_home() / "mcp-tokens" / "higgsfield.json"
+    hermes_home = _get_hermes_home()
+    
+    # Try profile-specific tokens first
+    profiles_dir = hermes_home / "profiles"
+    if profiles_dir.exists():
+        for profile_dir in profiles_dir.iterdir():
+            if profile_dir.is_dir():
+                token_path = profile_dir / "mcp-tokens" / "higgsfield.json"
+                if token_path.exists():
+                    logger.info(f"Found tokens in profile: {profile_dir.name}")
+                    return token_path
+    
+    # Fall back to global tokens
+    return hermes_home / "mcp-tokens" / "higgsfield.json"
 
 
 def get_credentials() -> Optional[Tuple[str, str]]:
