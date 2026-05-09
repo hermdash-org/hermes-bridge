@@ -179,12 +179,34 @@ else:
 # without needing to install it separately.
 
 import shutil
+import platform
 bridge_binaries = []
+
 higgsfield_cli = shutil.which('higgsfield')
 if higgsfield_cli:
-    # Add to binaries (not datas) so it stays executable
+    # Add CLI wrapper to binaries
     bridge_binaries.append((higgsfield_cli, 'bin'))
     print(f"[OK] Bundling Higgsfield CLI from {higgsfield_cli}")
+    
+    # Windows: npm install creates .cmd wrapper + node_modules
+    # We need to bundle the entire node_modules/@higgsfield/cli directory
+    if platform.system() == 'Windows':
+        import os
+        # npm global install structure:
+        #   %APPDATA%\npm\higgsfield.cmd (wrapper)
+        #   %APPDATA%\npm\node_modules\@higgsfield\cli\ (actual code)
+        cli_dir = os.path.dirname(higgsfield_cli)
+        node_modules_dir = os.path.join(cli_dir, 'node_modules', '@higgsfield', 'cli')
+        
+        if os.path.exists(node_modules_dir):
+            # Bundle the entire @higgsfield/cli package
+            # The .cmd wrapper expects to find it at: bin/node_modules/@higgsfield/cli
+            bridge_datas.append((node_modules_dir, 'bin/node_modules/@higgsfield/cli'))
+            print(f"[OK] Bundling Higgsfield npm package from {node_modules_dir}")
+        else:
+            print(f"[WARN] Higgsfield npm package not found at {node_modules_dir}")
+            print(f"[WARN] Checked: {node_modules_dir}")
+            print(f"[WARN] CLI wrapper at: {higgsfield_cli}")
 else:
     print(f"[WARN] Higgsfield CLI not found -- users will need to install it manually")
 
