@@ -67,6 +67,16 @@ fi
 
 echo "✅ hermes-agent engine found at $HERMES_AGENT_PATH"
 
+# Check Higgsfield CLI
+if ! command -v higgsfield &> /dev/null; then
+    echo "⚠️  Higgsfield CLI not found in PATH"
+    echo "   The CLI will not be bundled in the runtime"
+    echo "   Install it with: curl -fsSL https://raw.githubusercontent.com/higgsfield-ai/cli/main/install.sh | sh"
+    echo ""
+else
+    echo "✅ Higgsfield CLI found: $(which higgsfield)"
+fi
+
 # ── Version Increment ────────────────────────────────────────────────────
 YEAR=$(date +%Y)
 MONTH_DAY=$(date +%m%d)

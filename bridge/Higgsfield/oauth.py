@@ -82,14 +82,13 @@ async def oauth_start(background_tasks: BackgroundTasks):
     """
     Start OAuth device flow using Higgsfield CLI.
     
-    Runs the CLI in a way that captures the verification URL and code,
-    then returns them to the frontend for display.
+    The CLI saves to its default location, we copy to ~/.hermes/higgsfield
+    in the background polling function.
     
     Returns:
         {
-            "verification_url": str,
-            "user_code": str,
-            "message": str
+            "message": str,
+            "instructions": str
         }
     """
     try:
@@ -100,78 +99,28 @@ async def oauth_start(background_tasks: BackgroundTasks):
                 "authenticated": True,
             }
         
-        # Ensure credentials directory exists
-        creds_dir = _get_credentials_path().parent
-        creds_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure our credentials directory exists
+        our_creds_dir = _get_credentials_path().parent
+        our_creds_dir.mkdir(parents=True, exist_ok=True)
         
-        # Set environment for CLI to use our credentials directory
-        env = os.environ.copy()
-        env["HIGGSFIELD_CONFIG_DIR"] = str(creds_dir)
+        logger.info("Starting Higgsfield CLI auth in background...")
         
-        logger.info("Starting Higgsfield CLI device flow...")
-        
-        # Run CLI auth login and capture output
-        # The CLI will print the verification URL and code
-        result = subprocess.run(
+        # Start CLI auth in background - it will open browser automatically
+        subprocess.Popen(
             ["higgsfield", "auth", "login"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         
-        # Parse CLI output to extract verification URL and user code
-        output = result.stdout + result.stderr
-        logger.info(f"CLI output: {output}")
+        # Start background polling - will copy credentials when they appear
+        background_tasks.add_task(_poll_for_credentials, interval=2, timeout=300)
         
-        # Extract verification URL and code from output
-        # CLI typically outputs something like:
-        # "Visit: https://higgsfield.ai/device"
-        # "Enter code: ABC-DEF-123"
+        return {
+            "verification_url": "https://higgsfield.ai/device",
+            "user_code": "Check the browser window that just opened",
+            "message": "Browser opened for authentication. Please complete the login and return here.",
+        }
         
-        verification_url = "https://higgsfield.ai/device"  # Default
-        user_code = None
-        
-        for line in output.split('\n'):
-            if 'http' in line.lower():
-                # Extract URL
-                import re
-                urls = re.findall(r'https?://[^\s]+', line)
-                if urls:
-                    verification_url = urls[0].rstrip('.,;')
-            
-            if 'code' in line.lower():
-                # Extract code (usually format: ABC-DEF-123)
-                import re
-                codes = re.findall(r'\b[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}\b', line)
-                if codes:
-                    user_code = codes[0]
-        
-        if not user_code:
-            # Fallback: try to find any code-like pattern
-            import re
-            codes = re.findall(r'\b[A-Z0-9-]{8,}\b', output)
-            if codes:
-                user_code = codes[0]
-        
-        if user_code:
-            # Start background polling for credentials
-            background_tasks.add_task(_poll_for_credentials, interval=3, timeout=300)
-            
-            return {
-                "verification_url": verification_url,
-                "user_code": user_code,
-                "message": f"Visit {verification_url} and enter code: {user_code}",
-            }
-        else:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to extract verification code from CLI output"
-            )
-        
-    except subprocess.TimeoutExpired:
-        logger.error("CLI auth command timed out")
-        raise HTTPException(status_code=500, detail="Authentication timed out")
     except FileNotFoundError:
         logger.error("Higgsfield CLI not found in PATH")
         raise HTTPException(status_code=500, detail="Higgsfield CLI not installed")
@@ -197,3 +146,34 @@ def _poll_for_credentials(interval: int = 3, timeout: int = 300):
         time.sleep(interval)
     
     logger.warning("Credentials polling timed out")
+
+
+@router.post("/oauth-clear")
+async def oauth_clear():
+    """
+    Clear stored Higgsfield credentials.
+    
+    Returns:
+        {
+            "success": bool,
+            "message": str
+        }
+    """
+    try:
+        creds_path = _get_credentials_path()
+        
+        if creds_path.exists():
+            creds_path.unlink()
+            logger.info(f"✓ Credentials cleared from {creds_path}")
+            return {
+                "success": True,
+                "message": "Credentials cleared successfully"
+            }
+        else:
+            return {
+                "success": True,
+                "message": "No credentials to clear"
+            }
+    except Exception as e:
+        logger.error(f"Failed to clear credentials: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
