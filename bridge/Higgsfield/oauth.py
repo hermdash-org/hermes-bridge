@@ -112,10 +112,12 @@ async def oauth_start(background_tasks: BackgroundTasks):
         logger.info("Starting Higgsfield CLI auth in background...")
         
         # Start CLI auth in background - it will open browser automatically
+        # Explicitly pass environment to ensure PATH includes bundled CLI
         subprocess.Popen(
             ["higgsfield", "auth", "login"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=os.environ.copy(),
         )
         
         # Start background polling - will copy credentials when they appear
