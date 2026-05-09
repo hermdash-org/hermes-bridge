@@ -112,11 +112,27 @@ async def oauth_start(background_tasks: BackgroundTasks):
         
         logger.info("Starting Higgsfield CLI auth in background...")
         
+        # Get CLI path - use full path from bundle if available
+        import sys
+        if hasattr(sys, '_MEIPASS'):
+            # Running from PyInstaller bundle - use full path
+            from pathlib import Path
+            bin_dir = Path(sys._MEIPASS) / "bin"
+            if sys.platform == "win32":
+                cli_path = str(bin_dir / "higgsfield.exe")
+            else:
+                cli_path = str(bin_dir / "higgsfield")
+        else:
+            # Running from source - use command name
+            cli_path = "higgsfield.exe" if sys.platform == "win32" else "higgsfield"
+        
+        logger.info(f"Using CLI path: {cli_path}")
+        
         # Start CLI auth and capture the verification URL with device code
         # The CLI outputs: "If browser does not open, visit: https://higgsfield.ai/device?code=XXXXX"
         try:
             proc = subprocess.Popen(
-                ["higgsfield", "auth", "login"],
+                [cli_path, "auth", "login"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
