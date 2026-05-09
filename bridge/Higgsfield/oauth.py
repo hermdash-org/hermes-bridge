@@ -10,6 +10,7 @@ import json
 import time
 import logging
 import subprocess
+import threading
 from pathlib import Path
 from typing import Optional, Dict
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -111,22 +112,59 @@ async def oauth_start(background_tasks: BackgroundTasks):
         
         logger.info("Starting Higgsfield CLI auth in background...")
         
-        # Start CLI auth in background - it will open browser automatically
-        # Explicitly pass environment to ensure PATH includes bundled CLI
-        subprocess.Popen(
-            ["higgsfield", "auth", "login"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=os.environ.copy(),
-        )
+        # Start CLI auth and capture the verification URL with device code
+        # The CLI outputs: "If browser does not open, visit: https://higgsfield.ai/device?code=XXXXX"
+        try:
+            proc = subprocess.Popen(
+                ["higgsfield", "auth", "login"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=os.environ.copy(),
+            )
+            
+            # Read first few lines to get the verification URL
+            verification_url = "https://higgsfield.ai/device"
+            user_code = "Check the output"
+            
+            import threading
+            def read_output():
+                nonlocal verification_url, user_code
+                try:
+                    for line in proc.stdout:
+                        logger.info(f"CLI output: {line.strip()}")
+                        if "visit:" in line.lower() and "higgsfield.ai" in line:
+                            # Extract URL from line like: "If browser does not open, visit: https://higgsfield.ai/device?code=XXXXX"
+                            parts = line.split("visit:")
+                            if len(parts) > 1:
+                                url = parts[1].strip()
+                                verification_url = url
+                                # Extract code from URL
+                                if "?code=" in url:
+                                    user_code = url.split("?code=")[1].strip()
+                                logger.info(f"Captured verification URL: {verification_url}")
+                                break
+                except Exception as e:
+                    logger.error(f"Error reading CLI output: {e}")
+            
+            # Start thread to read output without blocking
+            threading.Thread(target=read_output, daemon=True).start()
+            
+            # Give it a moment to capture the URL
+            import time
+            time.sleep(1)
+            
+        except Exception as e:
+            logger.error(f"Failed to start CLI: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to start authentication: {e}")
         
         # Start background polling - will copy credentials when they appear
         background_tasks.add_task(_poll_for_credentials, interval=2, timeout=300)
         
         return {
-            "verification_url": "https://higgsfield.ai/device",
-            "user_code": "Check the browser window that just opened",
-            "message": "Browser opened for authentication. Please complete the login and return here.",
+            "verification_url": verification_url,
+            "user_code": user_code,
+            "message": "Please open the URL in your browser to complete authentication.",
         }
         
     except FileNotFoundError:
