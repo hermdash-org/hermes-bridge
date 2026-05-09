@@ -119,12 +119,13 @@ async def oauth_start(background_tasks: BackgroundTasks):
             from pathlib import Path
             bin_dir = Path(sys._MEIPASS) / "bin"
             if sys.platform == "win32":
-                cli_path = str(bin_dir / "higgsfield.exe")
+                # Windows npm install creates .cmd wrapper, not .exe
+                cli_path = str(bin_dir / "higgsfield.cmd")
             else:
                 cli_path = str(bin_dir / "higgsfield")
         else:
             # Running from source - use command name
-            cli_path = "higgsfield.exe" if sys.platform == "win32" else "higgsfield"
+            cli_path = "higgsfield.cmd" if sys.platform == "win32" else "higgsfield"
         
         logger.info(f"Using CLI path: {cli_path}")
         

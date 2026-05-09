@@ -308,8 +308,8 @@ def _setup_higgsfield_wrapper():
         os.environ["PATH"] = f"{bin_dir}{path_sep}{os.environ.get('PATH', '')}"
         
         # Make CLI executable (in case permissions were lost)
-        # Windows uses .exe extension
-        cli_name = "higgsfield.exe" if sys.platform == "win32" else "higgsfield"
+        # Windows npm install creates .cmd wrapper, not .exe
+        cli_name = "higgsfield.cmd" if sys.platform == "win32" else "higgsfield"
         cli_binary = bin_dir / cli_name
         if cli_binary.exists():
             if sys.platform != "win32":
