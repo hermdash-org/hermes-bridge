@@ -303,13 +303,17 @@ def _setup_higgsfield_wrapper():
             return
     
     if bin_dir.exists():
-        # Add to PATH so CLI commands work
-        os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
+        # Add to PATH so CLI commands work (use correct separator for platform)
+        path_sep = ";" if sys.platform == "win32" else ":"
+        os.environ["PATH"] = f"{bin_dir}{path_sep}{os.environ.get('PATH', '')}"
         
         # Make CLI executable (in case permissions were lost)
-        cli_binary = bin_dir / "higgsfield"
+        # Windows uses .exe extension
+        cli_name = "higgsfield.exe" if sys.platform == "win32" else "higgsfield"
+        cli_binary = bin_dir / cli_name
         if cli_binary.exists():
-            cli_binary.chmod(0o755)
+            if sys.platform != "win32":
+                cli_binary.chmod(0o755)
             logger.info(f"✓ Higgsfield CLI added to PATH: {bin_dir}")
         else:
             logger.warning(f"Higgsfield CLI binary not found at {cli_binary}")
