@@ -62,6 +62,26 @@ def _get_custom_skill_names() -> set:
         return set()
 
 
+def _get_all_skill_names() -> set:
+    """Get set of ALL skill names — custom + global installed skills.
+
+    Used for validation so users can attach any skill (fal-generate,
+    fal-agency-prompts, etc.) not just custom-created ones.
+    """
+    all_names = _get_custom_skill_names()
+    try:
+        # Import global skills lister from Skills router
+        from ..Skills import _get_skills_dir, _load_profile_config, _get_disabled_skills, _discover_skills
+        skills_dir = _get_skills_dir()
+        config = _load_profile_config()
+        disabled = _get_disabled_skills(config)
+        global_skills = _discover_skills(skills_dir, disabled)
+        all_names |= {s['name'] for s in global_skills}
+    except Exception:
+        pass
+    return all_names
+
+
 def _job_uses_custom_skills(job: Dict[str, Any]) -> bool:
     """Check if a job uses any custom skills from current profile OR has no skills (base AI).
     
@@ -78,34 +98,27 @@ def _job_uses_custom_skills(job: Dict[str, Any]) -> bool:
             # No skills = uses base AI = valid for this profile
             return True
     
-    custom_skill_names = _get_custom_skill_names()
-    
-    # If job has skills, check if ANY of them are custom skills from this profile
-    # This allows jobs with mixed skills (custom + built-in) to show up
-    has_custom_skills = any(skill in custom_skill_names for skill in job_skills)
-    
-    # Also check if job has ONLY built-in skills (not custom skills from other profiles)
-    # For now, we'll be permissive and show all jobs that either:
-    # 1. Have no skills (base AI)
-    # 2. Have at least one custom skill from this profile
-    return has_custom_skills or len(job_skills) == 0
+    all_skill_names = _get_all_skill_names()
+
+    # Show job if ANY of its skills exist in the profile (custom or global)
+    has_valid_skills = any(skill in all_skill_names for skill in job_skills)
+    return has_valid_skills or len(job_skills) == 0
 
 
 def _validate_custom_skills(skill_names: List[str]) -> tuple[bool, str]:
-    """Validate that all skill names exist in current profile's custom skills.
-    
-    Returns:
-        (valid, error_message)
+    """Validate that all skill names exist — custom OR global installed skills.
+
+    Accepts any skill the user has installed, not just custom-created ones.
     """
     if not skill_names:
         return True, ""
-    
-    custom_skill_names = _get_custom_skill_names()
-    invalid_skills = [s for s in skill_names if s not in custom_skill_names]
-    
+
+    all_skill_names = _get_all_skill_names()
+    invalid_skills = [s for s in skill_names if s not in all_skill_names]
+
     if invalid_skills:
-        return False, f"Custom skills not found in current profile: {', '.join(invalid_skills)}"
-    
+        return False, f"Skills not found in current profile: {', '.join(invalid_skills)}"
+
     return True, ""
 
 
