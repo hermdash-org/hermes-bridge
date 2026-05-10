@@ -172,6 +172,14 @@ if os.path.exists(higgsfield_skills_path):
 else:
     print(f"[WARN] Higgsfield skills not found at {higgsfield_skills_path}")
 
+# Bundle Fal skills from hermes repo (our custom skills)
+fal_skills_path = str(spec_dir / 'skills' / 'fal')
+if os.path.exists(fal_skills_path):
+    bridge_datas.append((fal_skills_path, 'skills/fal'))
+    print(f"[OK] Bundling Fal skills from {fal_skills_path}")
+else:
+    print(f"[WARN] Fal skills not found at {fal_skills_path}")
+
 # ═══════════════════════════════════════════════════════════════════════════
 # STEP 4.5: Bundle Higgsfield CLI binary
 # ═══════════════════════════════════════════════════════════════════════════
