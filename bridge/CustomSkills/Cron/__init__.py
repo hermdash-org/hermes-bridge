@@ -65,20 +65,23 @@ def _get_custom_skill_names() -> set:
 def _get_all_skill_names() -> set:
     """Get set of ALL skill names — custom + global installed skills.
 
-    Used for validation so users can attach any skill (fal-generate,
-    fal-agency-prompts, etc.) not just custom-created ones.
+    Uses the same _discover_skills() function as the /skills/ endpoint.
     """
     all_names = _get_custom_skill_names()
     try:
-        # Import global skills lister from Skills router
-        from ..Skills import _get_skills_dir, _load_profile_config, _get_disabled_skills, _discover_skills
+        from ..Skills import (
+            _get_skills_dir,
+            _load_profile_config,
+            _get_disabled_skills,
+            _discover_skills,
+        )
         skills_dir = _get_skills_dir()
         config = _load_profile_config()
         disabled = _get_disabled_skills(config)
         global_skills = _discover_skills(skills_dir, disabled)
         all_names |= {s['name'] for s in global_skills}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("_get_all_skill_names fallback: %s", e)
     return all_names
 
 

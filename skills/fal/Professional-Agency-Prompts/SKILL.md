@@ -1,13 +1,6 @@
-This is a significant upgrade. By adding the **"Physical Typography"** and **"Mindblowing Environment"** sections to your `skills.md`, you are essentially giving your AI agent the "DNA" of a high-end creative director.
-
-Here is the updated, expanded version of your **skills.md**. I have integrated the new "Golden Formula" (now including Environment) and added the mindblowing industry-specific logic we developed.
-
-***
-
-```markdown
 ---
 version: 1.1.0
-name: hermes-agency-production
+name: fal-agency-prompts
 description: Tier-1 Agency-standard prompt formulas for multi-million dollar commercial imagery. Focuses on physical realism, high-end textures, and "impossible" marketing shots for global brands (KFC, Sprite, Apple, Nike).
 argument-hint: "[brand/product] [industry] [scenario]"
 allowed-tools: Python
@@ -18,6 +11,7 @@ allowed-tools: Python
 Use these formulas to generate commercial-grade assets that replace traditional photoshoots and CGI teams.
 
 ## The Expanded Golden Formula
+
 *For any product in any of the 1 million+ business fields.*
 
 ```
@@ -60,24 +54,17 @@ Lit by [Lighting Style], shot on [Professional Camera/Lens]. [Negative Constrain
 > "Commercial food photography of [Food Item]. Extreme macro focus on [Texture: Crispy skin/Fizzing bubbles]. Shot on 100mm macro. Dramatic backlighting. Indistinguishable from a global TV commercial."
 
 ## The "Anti-AI" Negative Prompt
+
 *Always append this to ensure professional output.*
+
 ```
-(gibberish text, malformed letters, neon glow, sci-fi, cyberpunk, hologram, 3D render, cartoon, plastic texture, over-saturated, glowing edges, watermark, fake-looking, blurry text, messy lines)
+(gibberish text, malformed letters, neon glow, sci-fi, cyberpunk, hologram, 3D render, cartoon,
+plastic texture, over-saturated, glowing edges, watermark, fake-looking, blurry text, messy lines)
 ```
 
 ## Operational Rules
+
 - **Model Choice:** Always use `fal-ai/flux-pro` for "Agency Standard" or Higgsfield for "Viral Video/Personalization."
 - **Focus:** Never describe "Magic" or "Aura." Always describe **Light** and **Material**.
 - **Display:** Always display results as: `![image](url)`
 - **Constraint:** Never use `curl` directly. Always route through the integrated generation skill.
-```
-
-***
-
-### 🚀 What's New in this Skill:
-1.  **Environment Variable:** It now tells the AI where the product is (Times Square, Paris, a Dark Studio), which creates a "Story."
-2.  **Physical Typography:** It solves your announcement problem by treating text as a physical 3D object.
-3.  **OOH / Billboards:** It allows you to generate mockups for real-world advertising placements.
-4.  **Anti-AI Polish:** The negative prompt is now specifically tuned to kill that "cheap AI" look that businesses hate.
-
-**Your Hermes Agent is now officially a Marketing Agency in a box.**
