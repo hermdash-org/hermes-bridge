@@ -1,0 +1,22 @@
+/* Custom styles on top of Tailwind */
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+/* Turn role colors */
+.turn-system  { border-left: 2px solid #374151; }
+.turn-human   { border-left: 2px solid #3b82f6; }
+.turn-gpt     { border-left: 2px solid #10b981; }
+.turn-tool    { border-left: 2px solid #f59e0b; }
+
+/* Think block */
+.think-block  { border-left: 2px solid #6b7280; font-style: italic; }
+
+/* Active nav item */
+.nav-active   { background: #1f2937; color: #f9fafb; }
+
+/* Fade in */
+.fade-in { animation: fadeIn 0.15s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }

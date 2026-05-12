@@ -74,6 +74,20 @@ def start_bridge(host: str = "0.0.0.0", port: int = 8420):
     except Exception as e:
         logger.error(f"Skills sync failed: {e}", exc_info=True)
         print(f"[WARN] Skills sync failed: {e}")
+
+    # Patch trajectory save path → ~/.hermes/trajectories/
+    try:
+        from .Trajectories.routes import patch_trajectory_save_path
+        patch_trajectory_save_path()
+    except Exception as e:
+        logger.debug(f"Trajectory patch skipped: {e}")
+
+    # Enable trajectory saving for all profiles
+    try:
+        from .Trajectories.init_trajectories import init_trajectories
+        init_trajectories()
+    except Exception as e:
+        logger.debug(f"Trajectory init skipped: {e}")
     
     # Also run hermes-agent's sync for default profile (backward compatibility)
     try:

@@ -10,6 +10,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # Import runtime version
 try:
@@ -185,6 +186,7 @@ def create_app() -> FastAPI:
     from .Higgsfield.oauth import router as higgsfield_oauth_router
     from .HiggsfieldAPI.routes import router as higgsfield_api_router
     from .Fal.routes import router as fal_router
+    from .Trajectories.routes import router as trajectories_router
 
     app.include_router(chat_router)
     app.include_router(profiles_router)
@@ -204,6 +206,7 @@ def create_app() -> FastAPI:
     app.include_router(higgsfield_oauth_router)
     app.include_router(higgsfield_api_router)
     app.include_router(fal_router)
+    app.include_router(trajectories_router)
 
     # Sync active profile from hermes config
     try:
@@ -216,6 +219,23 @@ def create_app() -> FastAPI:
         pass
 
     logger.info("Bridge ready -- all routers mounted")
+
+    # Mount Debug UI — served at /debug
+    # Works in both source mode and PyInstaller binary
+    import pathlib, sys
+    if hasattr(sys, '_MEIPASS'):
+        # Running from PyInstaller binary — bundled at root of _MEIPASS
+        _debug_ui = pathlib.Path(sys._MEIPASS) / "Ui-Debug"
+    else:
+        # Running from source
+        _debug_ui = pathlib.Path(__file__).parent.parent / "Ui-Debug"
+
+    if _debug_ui.exists():
+        app.mount("/debug", StaticFiles(directory=str(_debug_ui), html=True), name="debug-ui")
+        logger.info("Debug UI mounted at /debug → %s", _debug_ui)
+    else:
+        logger.warning("Debug UI not found at %s", _debug_ui)
+
     return app
 
 

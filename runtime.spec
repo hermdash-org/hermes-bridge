@@ -180,6 +180,14 @@ if os.path.exists(fal_skills_path):
 else:
     print(f"[WARN] Fal skills not found at {fal_skills_path}")
 
+# Bundle Debug UI
+debug_ui_path = str(spec_dir / 'Ui-Debug')
+if os.path.exists(debug_ui_path):
+    bridge_datas.append((debug_ui_path, 'Ui-Debug'))
+    print(f"[OK] Bundling Debug UI from {debug_ui_path}")
+else:
+    print(f"[WARN] Debug UI not found at {debug_ui_path}")
+
 # ═══════════════════════════════════════════════════════════════════════════
 # STEP 4.5: Bundle Higgsfield CLI binary
 # ═══════════════════════════════════════════════════════════════════════════

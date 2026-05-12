@@ -222,4 +222,9 @@ def build_agent_kwargs(profile_home: Path) -> dict:
     if toolsets is not None:
         kwargs["enabled_toolsets"] = toolsets
 
+    # save_trajectories → AIAgent constructor param
+    # Belongs here because build_agent_kwargs is the single source of truth
+    # for all config.yaml → AIAgent kwargs mapping.
+    kwargs["save_trajectories"] = bool(cfg.get("save_trajectories", False))
+
     return kwargs
