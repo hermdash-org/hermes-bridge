@@ -352,7 +352,7 @@ if __name__ == "__main__":
         # Start the bridge server IMMEDIATELY (no blocking on network calls)
         from bridge.server import start_bridge
         logger.info(f"Starting bridge on 127.0.0.1:{port}")
-        start_bridge(host="127.0.0.1", port=port)
+        start_bridge(host="0.0.0.0", port=port)
 
     except KeyboardInterrupt:
         logger.info("Shutting down (Ctrl+C)")
