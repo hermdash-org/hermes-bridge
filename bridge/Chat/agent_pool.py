@@ -313,26 +313,17 @@ def subscribe_to_stream(session_id, q, loop):
 
 
 def unsubscribe_from_stream(session_id, sub):
-    """Remove a subscriber and clean up buffer if no subscribers left.
-
-    Buffer is only cleared if the agent has finished (done signal was sent).
-    This allows late reconnects to replay all events even after disconnect.
-    """
+    """Remove a subscriber and clean up buffer if no subscribers left."""
     with stream_sub_lock:
         subs = stream_subscribers.get(session_id, [])
         if sub in subs:
             subs.remove(sub)
         remaining = len(subs)
 
-    # Only clear buffer if no subscribers AND agent is done
-    # (done signal = None sentinel is in the buffer)
+    # Clean up buffer if no more subscribers
     if remaining == 0:
         with _stream_buffer_lock:
-            buf = _stream_buffers.get(session_id, [])
-            # None sentinel means done signal was sent — safe to clear
-            agent_done = any(item is None for item in buf)
-            if agent_done:
-                _stream_buffers.pop(session_id, None)
+            _stream_buffers.pop(session_id, None)
 
 
 def push_stream_delta(session_id: str, raw_delta):
